@@ -1,0 +1,20 @@
+# Archivos generados por Qt y los compiladores
+build/
+**/build/
+*.o
+*.obj
+*.exe
+*.dll
+*.pdb
+*.ilk
+*.a
+*.lib
+
+# Configuración local de Qt Creator
+*.pro.user
+*.pro.user.*
+
+# Archivos temporales del sistema y del editor
+.DS_Store
+Thumbs.db
+*.swp
