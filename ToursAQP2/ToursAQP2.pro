@@ -9,6 +9,7 @@ SOURCES += \
     mapgraph.cpp \
     nodepainter.cpp \
     nodoswindow.cpp \
+    passwordutils.cpp \
     savedroutesmanager.cpp \
     toursaqp.cpp \
     usermanager.cpp \
@@ -21,24 +22,29 @@ HEADERS += \
     mapgraph.h \
     nodepainter.h \
     nodoswindow.h \
+    passwordutils.h \
     savedroutesmanager.h \
     toursaqp.h \
     usermanager.h \
     utils.h
-
-FORMS += \
-    toursaqp.ui
 
 TRANSLATIONS += \
     ToursAQP2_es_PE.ts
 CONFIG += lrelease
 CONFIG += embed_translations
 
-# ===== Estilos y recursos =====
+# ===== Temas visuales (empaquetados dentro del ejecutable) =====
+RESOURCES += \
+    resources/styles/styles.qrc
+
+# ===== Base de datos: se copia junto al ejecutable al compilar =====
+CONFIG += file_copies
+
+COPIES += dbfiles
+dbfiles.files = $$PWD/Tours.s3db
+dbfiles.path = $$OUT_PWD
+
 DISTFILES += \
-    resources/styles/dark.qss \
-    resources/styles/light.qss \
-    resources/styles/modern.qss \
     Tours.s3db
 
 # ===== Instalación por defecto =====

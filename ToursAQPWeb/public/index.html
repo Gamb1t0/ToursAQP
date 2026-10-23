@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tours AQP</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <aside class="panel panel-left">
+    <h3>Filtrar por categoria</h3>
+    <select id="comboCategoria"></select>
+    <button id="btnFiltrar">Aplicar filtro</button>
+
+    <h3>Rutas guardadas</h3>
+    <ul id="listaRutas" class="route-list"></ul>
+  </aside>
+
+  <main class="panel panel-center">
+    <h1>Tours AQP</h1>
+
+    <div class="search-row">
+      <input id="txtBuscar" placeholder="Buscar lugar..." autocomplete="off">
+      <button id="btnBuscar">Buscar</button>
+      <div id="listaResultadosBusqueda" class="dropdown-list hidden"></div>
+    </div>
+
+    <h4>Ubicaciones seleccionadas:</h4>
+    <div id="ubicacionesLayout" class="selected-list"></div>
+
+    <div id="mapaVacio" class="mapa-vacio">Mapa vacio, agregue lugares para comenzar</div>
+    <div id="mapaCanvas"></div>
+    <p id="rutaInfo" class="ruta-info hidden"></p>
+
+    <div class="button-row">
+      <button id="btnGuardar" disabled>Guardar Ruta</button>
+      <button id="btnRutaMinima">Calcular ruta optima</button>
+    </div>
+    <div class="button-row">
+      <button id="btnVerOriginal">Ver orden agregado</button>
+      <button id="btnVerTodos">Ver todos los lugares</button>
+      <button id="btnLimpiar">Nueva ruta (limpiar mapa)</button>
+    </div>
+  </main>
+
+  <aside class="panel panel-right">
+    <p id="lblUsuario">No ha iniciado sesion</p>
+    <button id="btnLogin">Iniciar sesion</button>
+    <button id="btnNodos" disabled>Administrar nodos</button>
+  </aside>
+</div>
+
+<dialog id="dlgLogin">
+  <form id="formLogin">
+    <h3>Iniciar sesion</h3>
+    <label>Usuario<input id="loginUser" required autocomplete="username"></label>
+    <label>Contrasena<input id="loginPass" type="password" required autocomplete="current-password"></label>
+    <p id="loginError" class="error hidden"></p>
+    <div class="dialog-actions">
+      <button type="submit">Ingresar</button>
+      <button type="button" id="btnCancelLogin">Cancelar</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgGuardar">
+  <form id="formGuardar">
+    <h3>Guardar ruta</h3>
+    <label>Nombre<input id="guardarNombre" required></label>
+    <div class="dialog-actions">
+      <button type="submit">Guardar</button>
+      <button type="button" id="btnCancelGuardar">Cancelar</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgNodos">
+  <h3>Administrar nodos</h3>
+  <div class="table-wrap">
+    <table id="tablaNodos">
+      <thead><tr><th>ID</th><th>Code</th><th>Label</th><th>Desc</th><th>Ubicacion</th><th>Tipo</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <div class="dialog-actions">
+    <button type="button" id="btnCerrarNodos">Cerrar</button>
+  </div>
+</dialog>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="app.js"></script>
+</body>
+</html>

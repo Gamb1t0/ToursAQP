@@ -15,7 +15,7 @@
 #include <QPainter>   // para setRenderHint
 
 #include "mapaview.h"
-//#include "nodepainter.h"
+#include "nodepainter.h"
 #include "mapgraph.h"
 #include "usermanager.h"
 #include "savedroutesmanager.h"
@@ -29,6 +29,7 @@ ToursAQP::ToursAQP(QWidget* parent)
     txtBuscar(new QLineEdit(this)),
     btnRutaMinima(new QPushButton("Ruta mínima", this)),
     btnGuardar(new QPushButton("Guardar Ruta", this)),
+    btnNodos(new QPushButton("Administrar nodos", this)),
     mapaScene(new QGraphicsScene(this)),
     mapaView(new QGraphicsView(this)),
     lblUsuario(new QLabel("No ha iniciado sesión", this)),
@@ -37,8 +38,9 @@ ToursAQP::ToursAQP(QWidget* parent)
 {
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
-    // Nadie puede guardar hasta que haya login (y sea admin)
+    // Nadie puede guardar ni administrar nodos hasta que haya login (y sea admin)
     btnGuardar->setEnabled(false);
+    btnNodos->setEnabled(false);
 
     mapaView->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     listaRutas->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
@@ -106,6 +108,7 @@ ToursAQP::ToursAQP(QWidget* parent)
     QPushButton* btnDFS = new QPushButton("DFS");
     QPushButton* btnBFS = new QPushButton("BFS");
     QPushButton* btnVerOriginal = new QPushButton("Ver recorrido original");
+    QPushButton* btnVerTodos = new QPushButton("Ver todos los lugares");
     QPushButton* btnLimpiar = new QPushButton("Nueva ruta (limpiar mapa)");
     btns->addWidget(btnGuardar);
     btns->addWidget(btnRutaMinima);
@@ -113,6 +116,7 @@ ToursAQP::ToursAQP(QWidget* parent)
     btns->addWidget(btnBFS);
     center->addLayout(btns);
     center->addWidget(btnVerOriginal);
+    center->addWidget(btnVerTodos);
     center->addWidget(btnLimpiar);
 
     mainLayout->addLayout(center);
@@ -123,6 +127,7 @@ ToursAQP::ToursAQP(QWidget* parent)
 
     QPushButton* btnLogin = new QPushButton("Iniciar sesion");
     right->addWidget(btnLogin);
+    right->addWidget(btnNodos);
 
     right->addWidget(new QLabel("Zoom"));
     QPushButton* zoomIn = new QPushButton("+");
@@ -152,7 +157,9 @@ ToursAQP::ToursAQP(QWidget* parent)
     connect(btnDFS, &QPushButton::clicked, this, &ToursAQP::onDFS);
     connect(btnBFS, &QPushButton::clicked, this, &ToursAQP::onBFS);
     connect(btnVerOriginal, &QPushButton::clicked, this, &ToursAQP::onVerOriginal);
+    connect(btnVerTodos, &QPushButton::clicked, this, &ToursAQP::onVerTodosLosNodos);
     connect(btnGuardar, &QPushButton::clicked, this, &ToursAQP::onGuardarRuta);
+    connect(btnNodos, &QPushButton::clicked, this, &ToursAQP::onNodos);
     connect(btnLimpiar, &QPushButton::clicked, this, &ToursAQP::onLimpiarMapa);
 
     connect(listaRutas, &QListWidget::itemClicked, this, &ToursAQP::mostrarRutaSeleccionada);
@@ -298,21 +305,13 @@ void ToursAQP::agregarUbicacionDesdeBusqueda(QListWidgetItem* item) {
         fila->deleteLater();
 
         // al eliminar, volver a ajustar vista
-        QRectF rect = mapaScene->itemsBoundingRect();
-        if (!rect.isNull()) {
-            rect = rect.adjusted(-40, -40, 40, 40);
-            mapaView->fitInView(rect, Qt::KeepAspectRatio);
-        }
+        ajustarVistaMapa();
     });
 
     MapGraph::generarEdges(mapaScene, getNodosSeleccionados());
 
-    // 🔎 Ajustar el zoom para que todos los nodos seleccionados se vean
-    QRectF rect = mapaScene->itemsBoundingRect();
-    if (!rect.isNull()) {
-        rect = rect.adjusted(-40, -40, 40, 40); // margen
-        mapaView->fitInView(rect, Qt::KeepAspectRatio);
-    }
+    // Ajustar el zoom para que todos los nodos seleccionados se vean
+    ajustarVistaMapa();
 }
 
 void ToursAQP::onFiltrar() {
@@ -371,12 +370,10 @@ void ToursAQP::onLogin() {
         lblUsuario->setText(UserManager::getNombreCompleto() + " (" + UserManager::getRol() + ")");
         lblUsuario->setStyleSheet("color:green;");
 
-        // Solo admin puede guardar rutas
-        if (UserManager::getRol() == "admin") {
-            btnGuardar->setEnabled(true);
-        } else {
-            btnGuardar->setEnabled(false);
-        }
+        // Solo admin puede guardar rutas y administrar nodos
+        bool esAdmin = (UserManager::getRol() == "admin");
+        btnGuardar->setEnabled(esAdmin);
+        btnNodos->setEnabled(esAdmin);
     } else {
         QMessageBox::warning(this, "Error", "Credenciales incorrectas");
     }
@@ -387,37 +384,9 @@ void ToursAQP::onNodos() {
     ventana->exec();
 }
 
-void ToursAQP::onRutas() {
-    mapaScene->clear();
-
-    QSqlQuery query("SELECT id, code, label, value, unit FROM edges");
-
-    int y = 20;
-    bool hayRutas = false;
-
-    while (query.next()) {
-        QString text = QString("Ruta %1: %2 (%3 %4)")
-        .arg(query.value(1).toString())
-            .arg(query.value(2).toString())
-            .arg(query.value(3).toDouble())
-            .arg(query.value(4).toString());
-
-        QGraphicsTextItem* t = mapaScene->addText(text);
-        t->setPos(10, y);
-        y += 20;
-        hayRutas = true;
-    }
-
-    if (!hayRutas) {
-        QMessageBox::information(this, "Aviso", "No hay rutas en la base de datos");
-    } else {
-        // ajustar vista para ver todas las rutas de texto
-        QRectF rect = mapaScene->itemsBoundingRect();
-        if (!rect.isNull()) {
-            rect = rect.adjusted(-20, -20, 20, 20);
-            mapaView->fitInView(rect, Qt::KeepAspectRatio);
-        }
-    }
+void ToursAQP::onVerTodosLosNodos() {
+    NodePainter::dibujarTodosLosNodos(mapaScene);
+    ajustarVistaMapa();
 }
 
 QVector<int> ToursAQP::getNodosSeleccionados() {
@@ -468,11 +437,7 @@ void ToursAQP::onDFS() {
     MapaView::mostrarRecorrido(mapaScene, rec, "DFS");
 
     // ajustar vista para que se vea todo el recorrido
-    QRectF rect = mapaScene->itemsBoundingRect();
-    if (!rect.isNull()) {
-        rect = rect.adjusted(-40, -40, 40, 40);
-        mapaView->fitInView(rect, Qt::KeepAspectRatio);
-    }
+    ajustarVistaMapa();
 
     QString msg = "DFS:\n";
     for (int i = 0; i < rec.size(); i++)
@@ -513,11 +478,7 @@ void ToursAQP::onBFS() {
     MapaView::mostrarRecorrido(mapaScene, rec, "BFS");
 
     // ajustar vista para que se vea todo el recorrido
-    QRectF rect = mapaScene->itemsBoundingRect();
-    if (!rect.isNull()) {
-        rect = rect.adjusted(-40, -40, 40, 40);
-        mapaView->fitInView(rect, Qt::KeepAspectRatio);
-    }
+    ajustarVistaMapa();
 
     QString msg = "BFS:\n";
     for (int i = 0; i < rec.size(); i++)
@@ -586,11 +547,7 @@ void ToursAQP::onRutaMinima() {
     MapaView::mostrarRecorrido(mapaScene, ruta, "MINIMA");
 
     // ajustar vista para que se vea la ruta mínima completa
-    QRectF rect = mapaScene->itemsBoundingRect();
-    if (!rect.isNull()) {
-        rect = rect.adjusted(-40, -40, 40, 40);
-        mapaView->fitInView(rect, Qt::KeepAspectRatio);
-    }
+    ajustarVistaMapa();
 
     double total = 0;
     for (int i = 0; i < ruta.size() - 1; i++)
@@ -661,19 +618,19 @@ void ToursAQP::mostrarRutaSeleccionada(QListWidgetItem* item) {
     SavedRoutesManager::mostrarRutaEnMapa(mapaScene, mapaView, item);
 
     // ajustar vista para ver la ruta guardada completa
-    QRectF rect = mapaScene->itemsBoundingRect();
-    if (!rect.isNull()) {
-        rect = rect.adjusted(-40, -40, 40, 40);
-        mapaView->fitInView(rect, Qt::KeepAspectRatio);
-    }
+    ajustarVistaMapa();
 }
 
 void ToursAQP::resizeEvent(QResizeEvent* event) {
     QWidget::resizeEvent(event);
     if (!mapaScene || !mapaView) return;
+    ajustarVistaMapa();
+}
+
+void ToursAQP::ajustarVistaMapa(int margen) {
     QRectF rect = mapaScene->itemsBoundingRect();
-    if (!rect.isNull()) {
-        rect = rect.adjusted(-40, -40, 40, 40);
-        mapaView->fitInView(rect, Qt::KeepAspectRatio);
-    }
+    if (rect.isNull()) return;
+
+    rect = rect.adjusted(-margen, -margen, margen, margen);
+    mapaView->fitInView(rect, Qt::KeepAspectRatio);
 }

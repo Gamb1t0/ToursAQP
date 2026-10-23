@@ -1,0 +1,4 @@
+node_modules/
+*.log
+data/Tours.s3db-wal
+data/Tours.s3db-shm

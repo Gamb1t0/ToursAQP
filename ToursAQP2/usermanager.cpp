@@ -1,4 +1,5 @@
 #include "usermanager.h"
+#include "passwordutils.h"
 #include <QSqlQuery>
 #include <QSqlError>
 
@@ -10,11 +11,16 @@ int UserManager::userId = -1;
 
 bool UserManager::login(const QString& user, const QString& pass) {
     QSqlQuery q;
-    q.prepare("SELECT id, names, surnames, role FROM users WHERE username = ? AND password = ?");
+    q.prepare("SELECT id, names, surnames, role, password_hash, salt FROM users WHERE username = ?");
     q.addBindValue(user);
-    q.addBindValue(pass);
 
     if (!q.exec() || !q.next()) return false;
+
+    const QString storedHash = q.value(4).toString();
+    const QString salt = q.value(5).toString();
+
+    if (salt.isEmpty() || PasswordUtils::hashPassword(pass, salt) != storedHash)
+        return false;
 
     userId = q.value(0).toInt();
     nombres = q.value(1).toString();

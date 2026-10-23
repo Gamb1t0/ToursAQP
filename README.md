@@ -1,118 +1,82 @@
 # Tours AQP
 
-Aplicación de escritorio para planificar recorridos turísticos en Arequipa. El usuario puede buscar lugares, filtrarlos por categoría, seleccionarlos en un mapa y calcular diferentes recorridos sobre una red de ubicaciones. También incluye inicio de sesión y permite guardar rutas para consultarlas posteriormente.
+Aplicación para planificar recorridos turísticos en Arequipa. El usuario puede buscar lugares, filtrarlos por categoría, seleccionarlos en un mapa y calcular diferentes recorridos sobre una red de ubicaciones. También incluye inicio de sesión y permite guardar rutas para consultarlas posteriormente.
 
-> Las capturas de pantalla se agregarán en una próxima versión. Por ahora, este documento incluye un instructivo breve de ejecución y uso.
+> Las capturas de pantalla se agregarán en una próxima versión.
 
 ## Autor
 
 **Alex Abdon Rhoddo Pacheco**
 
-## Tecnologías utilizadas
+## Versión activa: Tours AQP Web
 
-- **C++17**: lenguaje principal del proyecto.
-- **Qt 6**: desarrollo de la interfaz gráfica de escritorio.
-- **Qt Widgets**: ventanas, formularios, botones, listas y controles visuales.
-- **Qt SQL**: conexión y consultas a la base de datos.
-- **SQLite**: almacenamiento de usuarios, lugares, categorías y rutas.
-- **QMake**: configuración y compilación del proyecto.
-- **Qt Style Sheets (QSS)**: temas visuales claro, oscuro y moderno.
+La versión que se mantiene activamente es la web, en [`ToursAQPWeb/`](ToursAQPWeb/). Se migró desde la versión original en Qt/C++ para no depender de instalar un SDK de Qt y poder trabajar directamente con Node.js y VS Code.
 
-## Funcionalidades principales
+```bash
+cd ToursAQPWeb
+npm install
+npm start
+```
 
-- Búsqueda de lugares turísticos.
-- Filtro de ubicaciones por categoría.
-- Visualización de ubicaciones y recorridos en un mapa.
-- Cálculo de ruta mínima.
-- Recorridos mediante DFS y BFS.
-- Visualización del recorrido original.
-- Inicio de sesión de usuarios.
+Luego abrir `http://localhost:3000`. Más detalles en [`ToursAQPWeb/README.md`](ToursAQPWeb/README.md).
+
+### Tecnologías
+
+- **Node.js** (`node:sqlite` nativo, sin dependencias de compilación) + **Express** en el backend.
+- **SQLite** para lugares, usuarios y rutas.
+- **HTML/CSS/JavaScript** en el frontend, con **Leaflet + OpenStreetMap** para el mapa.
+- Contraseñas con hash **PBKDF2-HMAC-SHA256** y sal por usuario.
+
+### Funcionalidades principales
+
+- Búsqueda de lugares turísticos y filtro por categoría (categorías cargadas desde la base de datos).
+- Mapa real interactivo (calles, relieve y volcanes de Arequipa de verdad) con marcadores, popups con descripción y categoría, y zoom nativo.
+- Cálculo de ruta óptima (vecino más cercano) con distancia total y tiempo estimado caminando.
+- Ver todos los lugares turísticos en el mapa, y el orden en que se agregaron a la selección actual.
+- Inicio de sesión de usuarios y administración de nodos para administradores.
 - Guardado y consulta de rutas.
-- Zoom del mapa.
-- Interfaz en español.
 
-## Requisitos
+Las coordenadas de los 55 lugares se corrigieron con datos reales (geocodificación vía OpenStreetMap/Nominatim) — antes eran aproximaciones inventadas alrededor de un único punto. Se descartaron DFS y BFS como "recorridos": eran ejercicios de teoría de grafos sin utilidad real para planificar un tour, y quedó solo el cálculo de ruta óptima.
 
-- Qt 6.9 o una versión compatible.
-- Compilador compatible con Qt, por ejemplo MinGW 64-bit o MSVC 2022 64-bit.
-- Módulos de Qt: `Core`, `Gui`, `Widgets` y `Sql`.
-- Controlador SQLite de Qt (`QSQLITE`).
+## Hoja de ruta
 
-## Ejecución
+Esta versión web es un paso intermedio entre un proyecto de portfolio y un producto que más gente pueda usar: al estar hospedada detrás de una URL (en vez de requerir instalar un ejecutable), es mucho más fácil compartirla. Si en el futuro se busca ofrecer el servicio a más personas en Arequipa, Perú u otros países, los pasos naturales serían:
 
-La versión principal se encuentra en la carpeta `ToursAQP2`.
+- Desplegar el servidor en un hosting real (Render, Fly.io, un VPS, etc.) en vez de correrlo solo en local.
+- Permitir cargar lugares y rutas de otras ciudades/países de forma configurable, en vez de tener las coordenadas de Arequipa fijas.
+- Terminar de verificar manualmente las ~16 coordenadas aproximadas (negocios pequeños sin presencia en OpenStreetMap) con datos de campo reales.
+- Agregar registro de usuarios en vez de depender de una cuenta de administrador creada manualmente en la base de datos.
 
-1. Abrir Qt Creator.
-2. Abrir el archivo `ToursAQP2/ToursAQP2.pro`.
-3. Seleccionar un kit de Qt, como **Desktop Qt 6.9.0 MinGW 64-bit**.
-4. Revisar las rutas de la base de datos y del tema visual en `ToursAQP2/database.cpp` y `ToursAQP2/main.cpp`.
-5. Compilar el proyecto.
-6. Ejecutar la aplicación.
+## Versiones de escritorio (Qt/C++, archivadas)
 
-También puede compilarse desde una terminal configurada con Qt:
+El proyecto nació como una aplicación de escritorio en Qt. Esas versiones ya no se mantienen activamente, pero se conservan en el repositorio:
+
+- [`ToursAQP2/`](ToursAQP2/): versión de escritorio más completa, en C++17/Qt 6. Requiere Qt Creator y un kit de Qt (MinGW 64-bit o MSVC 2022 64-bit) para compilarse.
+- [`ToursAQP/`](ToursAQP/): versión anterior y más simple, previa a `ToursAQP2`.
+
+Para compilar `ToursAQP2`:
 
 ```bash
 cd ToursAQP2
 qmake ToursAQP2.pro
-make
+mingw32-make   # o "make" fuera de Windows
 ```
 
-En Windows, usando el kit MinGW de Qt, el último comando puede ser:
+La base de datos (`Tours.s3db`) se copia automáticamente junto al ejecutable al compilar, y los temas visuales (`.qss`) están empaquetados dentro del propio binario — no hace falta editar rutas a mano. Las contraseñas también usan PBKDF2-HMAC-SHA256 con sal por usuario.
 
-```bash
-mingw32-make
-```
-
-## Instructivo de uso
-
-1. Iniciar la aplicación.
-2. Usar **Iniciar sesión** si se necesita acceder a las funciones de usuario.
-3. Buscar un lugar en el campo **Buscar lugar...** y seleccionarlo de la lista.
-4. Repetir el paso anterior para agregar los lugares del recorrido.
-5. Usar **Aplicar filtro** para consultar lugares por categoría.
-6. Elegir una opción de recorrido: **Ruta mínima**, **DFS**, **BFS** o **Ver recorrido original**.
-7. Utilizar los controles `+` y `-` para acercar o alejar el mapa.
-8. Guardar la ruta cuando el usuario tenga los permisos necesarios.
-9. Consultar las rutas almacenadas desde el panel **Rutas guardadas**.
-
-## Estructura del proyecto
+## Estructura del repositorio
 
 ```text
 ToursAQP/
-├── README.md                    # Documentación del proyecto
-├── ToursAQP/                    # Versión anterior del proyecto
-│   ├── ToursAQP.pro             # Configuración de QMake
-│   ├── main.cpp                 # Punto de entrada
-│   ├── toursaqp.cpp/.h          # Ventana principal
-│   ├── database.cpp/.h          # Manejo de la base de datos
-│   ├── NodosWindow.cpp/.h       # Ventana de nodos
-│   ├── ToursAQP.ui              # Diseño de la interfaz
-│   └── Tours.s3db               # Base de datos SQLite
-├── ToursAQP2/                   # Versión principal y más completa
-│   ├── ToursAQP2.pro            # Configuración de QMake
-│   ├── main.cpp                 # Punto de entrada de la aplicación
-│   ├── toursaqp.cpp/.h          # Ventana y lógica principal
-│   ├── toursaqp.ui              # Diseño de la interfaz Qt
-│   ├── database.cpp/.h          # Conexión con SQLite
-│   ├── mapaview.cpp/.h          # Vista del mapa
-│   ├── mapgraph.cpp/.h          # Grafo y conexiones entre nodos
-│   ├── geoutils.cpp/.h          # Utilidades geográficas
-│   ├── nodepainter.cpp/.h       # Dibujo de nodos del mapa
-│   ├── nodoswindow.cpp/.h       # Ventana de gestión de nodos
-│   ├── savedroutesmanager.cpp/.h # Guardado y carga de rutas
-│   ├── usermanager.cpp/.h       # Inicio de sesión y usuarios
-│   ├── utils.cpp/.h             # Funciones auxiliares
-│   ├── Tours.s3db               # Base de datos SQLite
-│   ├── ToursAQP2_es_PE.ts       # Traducciones al español
-│   └── resources/styles/         # Temas visuales QSS
-│       ├── dark.qss
-│       ├── light.qss
-│       └── modern.qss
-└── build/                       # Archivos generados durante la compilación
+├── README.md         # Este documento
+├── ToursAQPWeb/       # Versión activa (Node.js + Express + SQLite)
+├── ToursAQP2/         # Versión de escritorio Qt/C++ (archivada)
+├── ToursAQP/          # Versión de escritorio anterior (archivada)
+└── LICENSE
 ```
 
-## Base de datos y rutas locales
+## Usuario de prueba
 
-El proyecto incluye el archivo `Tours.s3db`. Antes de ejecutar la aplicación en otro equipo, se deben actualizar las rutas absolutas definidas en `ToursAQP2/database.cpp` y `ToursAQP2/main.cpp` para que apunten a la ubicación local de la base de datos y de los archivos `.qss`.
-
-Los directorios `build/` contienen archivos generados por Qt y no son necesarios para comprender la estructura del código fuente.
+- Usuario: `admin`
+- Contraseña: `admin123`
+- Rol: administrador

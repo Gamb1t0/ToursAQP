@@ -97,7 +97,10 @@ void SavedRoutesManager::mostrarRutaEnMapa(QGraphicsScene* scene, QGraphicsView*
         p->setData(0, "nodo");
 
         // texto
-        QSqlQuery q3("SELECT label FROM nodes WHERE id="+QString::number(id));
+        QSqlQuery q3;
+        q3.prepare("SELECT label FROM nodes WHERE id = ?");
+        q3.addBindValue(id);
+        q3.exec();
         q3.next();
         QString label = q3.value(0).toString();
 

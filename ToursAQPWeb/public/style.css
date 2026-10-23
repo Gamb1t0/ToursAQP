@@ -1,0 +1,221 @@
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background-color: #2b2b2b;
+  color: #f0f0f0;
+  font-family: "Segoe UI", "Noto Sans", sans-serif;
+  font-size: 14px;
+}
+
+h1, h3, h4 { margin: 0.4em 0; }
+
+.app {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  min-height: 100vh;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.panel-left, .panel-right {
+  width: 220px;
+  flex-shrink: 0;
+}
+
+.panel-center {
+  flex: 1;
+  min-width: 0;
+}
+
+h1 { text-align: center; }
+
+button {
+  background-color: #4CAF50;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 14px;
+}
+button:hover:not(:disabled) { background-color: #66BB6A; }
+button:active:not(:disabled) { background-color: #388E3C; }
+button:disabled { background-color: #555; cursor: not-allowed; color: #999; }
+
+input, select {
+  background-color: #3a3a3a;
+  color: white;
+  border: 1px solid #555;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 14px;
+}
+
+.search-row {
+  display: flex;
+  gap: 6px;
+  position: relative;
+}
+.search-row input { flex: 1; }
+
+.dropdown-list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  max-height: 200px;
+  overflow-y: auto;
+  background-color: #2b2b2b;
+  border: 1px solid #555;
+  border-radius: 6px;
+  margin-top: 2px;
+}
+.dropdown-list.hidden { display: none; }
+.dropdown-list div {
+  padding: 6px 8px;
+  cursor: pointer;
+}
+.dropdown-list div:hover { background-color: #00e676; color: #111; }
+.dropdown-list strong { display: block; }
+.dropdown-list small { display: block; opacity: 0.75; font-size: 11px; }
+
+.selected-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 36px;
+  max-height: 100px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid #444;
+  border-radius: 6px;
+}
+.selected-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background-color: #3a3a3a;
+  border-radius: 6px;
+  padding: 4px 6px;
+}
+.selected-item span { cursor: pointer; }
+.selected-item span:hover { text-decoration: underline; }
+.selected-item button {
+  padding: 2px 8px;
+  background-color: #a33;
+}
+.selected-item button:hover { background-color: #c44; }
+
+#mapaCanvas {
+  width: 100%;
+  height: 420px;
+  background-color: #1e1e1e;
+  border: 1px solid #555;
+  border-radius: 8px;
+}
+#mapaCanvas.hidden { display: none; }
+
+#mapaCanvas .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.9);
+}
+#mapaCanvas .leaflet-popup-content-wrapper,
+#mapaCanvas .leaflet-popup-tip {
+  background-color: #2b2b2b;
+  color: #f0f0f0;
+}
+#mapaCanvas .leaflet-popup-content { margin: 10px 12px; max-width: 220px; }
+#mapaCanvas .leaflet-popup-content strong { display: block; margin-bottom: 2px; }
+#mapaCanvas .leaflet-popup-content p { margin: 6px 0 0; font-size: 12px; opacity: 0.9; }
+.popup-cat {
+  display: inline-block;
+  font-size: 11px;
+  background-color: #3a3a3a;
+  padding: 1px 6px;
+  border-radius: 10px;
+}
+
+.mapa-vacio {
+  height: 420px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: #ffffff;
+  background-color: #1e1e1e;
+  border: 1px solid #555;
+  border-radius: 8px;
+}
+.mapa-vacio.hidden { display: none; }
+
+.ruta-info {
+  background-color: #3a3a3a;
+  border-radius: 6px;
+  padding: 8px 10px;
+  line-height: 1.5;
+}
+
+.button-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.button-row button { flex: 1; }
+
+.route-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  max-height: 300px;
+}
+.route-list li {
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.route-list li:hover { background-color: #3a3a3a; }
+
+#lblUsuario { color: #e0e0e0; }
+#lblUsuario.logueado { color: #66BB6A; }
+
+dialog {
+  background-color: #2b2b2b;
+  color: #f0f0f0;
+  border: 1px solid #555;
+  border-radius: 8px;
+  padding: 16px 20px;
+  min-width: 280px;
+}
+dialog::backdrop { background: rgba(0, 0, 0, 0.5); }
+
+dialog form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.error { color: #ff6b6b; }
+.hidden { display: none; }
+
+.table-wrap {
+  max-height: 60vh;
+  overflow: auto;
+}
+table { border-collapse: collapse; width: 100%; }
+th, td { border: 1px solid #555; padding: 4px 6px; font-size: 13px; }
+td input { width: 100%; padding: 3px; font-size: 12px; }

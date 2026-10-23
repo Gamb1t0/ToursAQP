@@ -36,7 +36,7 @@ private slots:
     void onGuardarRuta();
     void mostrarRutaSeleccionada(QListWidgetItem* item);
     void onNodos();
-    void onRutas();
+    void onVerTodosLosNodos();
     void cargarRutasGuardadas();
     double calcularDistanciaEntreNodos(int id1, int id2);
     void onVerOriginal();
@@ -47,11 +47,13 @@ private:
     QVector<int> ultimoRecorrido;
     QString ultimoTipo;
     QVector<int> getNodosSeleccionados();
+    void ajustarVistaMapa(int margen = 40);
     QComboBox* comboCategoria;
     QListWidget* listaRutas;
     QLineEdit* txtBuscar;
     QPushButton* btnRutaMinima;
     QPushButton* btnGuardar;
+    QPushButton* btnNodos;
     QGraphicsScene* mapaScene;
     QGraphicsView* mapaView;
     QLabel* lblUsuario;
