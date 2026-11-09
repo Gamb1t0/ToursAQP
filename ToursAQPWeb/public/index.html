@@ -4,91 +4,141 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Tours AQP</title>
+<meta name="description" content="Arma tu recorrido por Arequipa: elige lugares y obtén la ruta por calles, a pie o en auto.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Source+Sans+3:wght@400;600;700&display=swap">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
   integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div class="app">
-  <aside class="panel panel-left">
-    <h3>Filtrar por categoría</h3>
-    <select id="comboCategoria"></select>
-    <button id="btnFiltrar">Aplicar filtro</button>
+  <aside class="sidebar">
+    <header class="topbar">
+      <div class="brand">
+        <h1>Tours AQP</h1>
+        <p>Arma tu recorrido por Arequipa</p>
+      </div>
+      <div class="account">
+        <button id="btnAdmin" class="btn btn-ghost btn-sm hidden">Editar lugares</button>
+        <button id="btnCuenta" class="btn btn-ghost btn-sm">Iniciar sesión</button>
+      </div>
+    </header>
+    <p id="lblUsuario" class="user-line hidden"></p>
 
-    <h3>Rutas guardadas</h3>
-    <ul id="listaRutas" class="route-list"></ul>
+    <nav class="tabs" role="tablist" aria-label="Secciones">
+      <button class="tab" role="tab" id="tabExplorar" data-tab="explorar" aria-controls="panelExplorar">Explorar</button>
+      <button class="tab" role="tab" id="tabRuta" data-tab="ruta" aria-controls="panelRuta">Mi ruta <span id="contadorParadas" class="count hidden">0</span></button>
+      <button class="tab" role="tab" id="tabGuardadas" data-tab="guardadas" aria-controls="panelGuardadas">Guardadas</button>
+    </nav>
+
+    <section id="panelExplorar" class="panel" role="tabpanel" aria-labelledby="tabExplorar">
+      <div class="panel-head">
+        <input id="txtBuscar" class="input" type="search" placeholder="Buscar lugar…" aria-label="Buscar lugar" autocomplete="off">
+        <div id="chipsCategoria" class="chips" role="group" aria-label="Filtrar por categoría"></div>
+      </div>
+      <p id="lblResultados" class="result-count"></p>
+      <ul id="listaLugares" class="place-list"></ul>
+    </section>
+
+    <section id="panelRuta" class="panel hidden" role="tabpanel" aria-labelledby="tabRuta">
+      <div id="rutaVacia" class="empty">
+        <h2>Tu ruta está vacía</h2>
+        <p>Agrega lugares desde la lista o el mapa. Con dos o más verás el camino por las calles.</p>
+        <button id="btnIrExplorar" class="btn btn-primary">Explorar lugares</button>
+      </div>
+
+      <div id="rutaContenido" class="hidden">
+        <div class="segmented" role="radiogroup" aria-label="Cómo te vas a mover">
+          <button class="segment" role="radio" data-profile="foot">A pie</button>
+          <button class="segment" role="radio" data-profile="car">En auto</button>
+        </div>
+
+        <div class="stats" aria-live="polite">
+          <div class="stat"><span id="statDistancia" class="stat-value">–</span><span class="stat-label">Distancia</span></div>
+          <div class="stat"><span id="statTiempo" class="stat-value">–</span><span class="stat-label">Tiempo</span></div>
+        </div>
+        <div id="avisoRuta" class="notice hidden"></div>
+
+        <ol id="listaParadas" class="stop-list"></ol>
+        <p class="hint">La primera parada es tu punto de partida.</p>
+
+        <div class="actions">
+          <button id="btnOptimizar" class="btn btn-primary">Ordenar por la ruta más rápida</button>
+          <div class="actions-row">
+            <button id="btnGuardar" class="btn btn-secondary">Guardar</button>
+            <button id="btnVaciar" class="btn btn-ghost">Vaciar</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="panelGuardadas" class="panel hidden" role="tabpanel" aria-labelledby="tabGuardadas">
+      <div id="guardadasVacia" class="empty">
+        <h2 id="guardadasTitulo"></h2>
+        <p id="guardadasTexto"></p>
+        <button id="btnGuardadasLogin" class="btn btn-primary hidden">Iniciar sesión</button>
+      </div>
+      <ul id="listaRutas" class="saved-list"></ul>
+    </section>
   </aside>
 
-  <main class="panel panel-center">
-    <h1>Tours AQP</h1>
-
-    <div class="search-row">
-      <input id="txtBuscar" placeholder="Buscar lugar..." autocomplete="off">
-      <button id="btnBuscar">Buscar</button>
-      <div id="listaResultadosBusqueda" class="dropdown-list hidden"></div>
-    </div>
-
-    <h4>Ubicaciones seleccionadas:</h4>
-    <div id="ubicacionesLayout" class="selected-list"></div>
-
-    <div id="mapaVacio" class="mapa-vacio">Mapa vacío: agrega lugares para comenzar</div>
-    <div id="mapaCanvas"></div>
-    <p id="rutaInfo" class="ruta-info hidden"></p>
-
-    <div class="button-row">
-      <button id="btnGuardar" disabled>Guardar Ruta</button>
-      <button id="btnRutaMinima">Optimizar ruta</button>
-    </div>
-    <div class="button-row">
-      <button id="btnVerOriginal">Ver orden agregado</button>
-      <button id="btnVerTodos">Ver todos los lugares</button>
-      <button id="btnLimpiar">Nueva ruta (limpiar mapa)</button>
-    </div>
+  <main class="map-area">
+    <div id="mapa" aria-label="Mapa de Arequipa"></div>
   </main>
-
-  <aside class="panel panel-right">
-    <p id="lblUsuario">No has iniciado sesión</p>
-    <button id="btnLogin">Iniciar sesión</button>
-    <button id="btnNodos" disabled>Administrar lugares</button>
-  </aside>
 </div>
 
-<dialog id="dlgLogin">
+<dialog id="dlgLogin" class="dialog">
   <form id="formLogin">
-    <h3>Iniciar sesión</h3>
-    <label>Usuario<input id="loginUser" required autocomplete="username"></label>
-    <label>Contraseña<input id="loginPass" type="password" required autocomplete="current-password"></label>
-    <p id="loginError" class="error hidden"></p>
+    <h2>Iniciar sesión</h2>
+    <p id="loginMotivo" class="dialog-text hidden"></p>
+    <label>Usuario<input id="loginUser" class="input" required autocomplete="username"></label>
+    <label>Contraseña<input id="loginPass" class="input" type="password" required autocomplete="current-password"></label>
+    <p id="loginError" class="form-error hidden" role="alert"></p>
     <div class="dialog-actions">
-      <button type="submit">Ingresar</button>
-      <button type="button" id="btnCancelLogin">Cancelar</button>
+      <button type="button" id="btnCancelLogin" class="btn btn-ghost">Cancelar</button>
+      <button type="submit" class="btn btn-primary">Entrar</button>
     </div>
   </form>
 </dialog>
 
-<dialog id="dlgGuardar">
+<dialog id="dlgGuardar" class="dialog">
   <form id="formGuardar">
-    <h3>Guardar ruta</h3>
-    <label>Nombre<input id="guardarNombre" required></label>
+    <h2>Guardar ruta</h2>
+    <label>Nombre<input id="guardarNombre" class="input" required maxlength="100" placeholder="Ej.: Centro histórico en una tarde"></label>
     <div class="dialog-actions">
-      <button type="submit">Guardar</button>
-      <button type="button" id="btnCancelGuardar">Cancelar</button>
+      <button type="button" id="btnCancelGuardar" class="btn btn-ghost">Cancelar</button>
+      <button type="submit" class="btn btn-primary">Guardar</button>
     </div>
   </form>
 </dialog>
 
-<dialog id="dlgNodos">
-  <h3>Administrar lugares</h3>
+<dialog id="dlgConfirmar" class="dialog">
+  <form method="dialog">
+    <h2 id="confirmarTitulo"></h2>
+    <p id="confirmarTexto" class="dialog-text"></p>
+    <div class="dialog-actions">
+      <button value="cancel" class="btn btn-ghost">Cancelar</button>
+      <button value="ok" class="btn btn-danger">Eliminar</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgAdmin" class="dialog dialog-wide">
+  <h2>Editar lugares</h2>
   <div class="table-wrap">
-    <table id="tablaNodos">
-      <thead><tr><th>ID</th><th>Código</th><th>Nombre</th><th>Descripción</th><th>Ubicación</th><th>Tipo</th><th></th></tr></thead>
+    <table id="tablaLugares">
+      <thead><tr><th>Código</th><th>Nombre</th><th>Descripción</th><th>Ubicación (lat,lon)</th><th>Categoría</th><th><span class="sr-only">Acciones</span></th></tr></thead>
       <tbody></tbody>
     </table>
   </div>
   <div class="dialog-actions">
-    <button type="button" id="btnCerrarNodos">Cerrar</button>
+    <button type="button" id="btnCerrarAdmin" class="btn btn-ghost">Cerrar</button>
   </div>
 </dialog>
+
+<div id="toast" class="toast" popover="manual" role="status"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
   integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>

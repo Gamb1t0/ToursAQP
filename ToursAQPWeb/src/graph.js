@@ -1,16 +1,16 @@
-function nearestNeighborOrder(nodeIds, distanceFn) {
+function nearestNeighborOrder(nodeIds, costFn) {
   const pending = new Set(nodeIds.slice(1));
   const order = [nodeIds[0]];
 
   while (pending.size > 0) {
     const actual = order[order.length - 1];
     let mejor = null;
-    let mejorDist = Infinity;
+    let mejorCosto = Infinity;
 
     for (const v of pending) {
-      const d = distanceFn(actual, v);
-      if (d < mejorDist) {
-        mejorDist = d;
+      const c = costFn(actual, v);
+      if (c < mejorCosto) {
+        mejorCosto = c;
         mejor = v;
       }
     }
@@ -22,26 +22,35 @@ function nearestNeighborOrder(nodeIds, distanceFn) {
   return order;
 }
 
+function routeCost(order, costFn) {
+  let total = 0;
+  for (let i = 0; i < order.length - 1; i++) total += costFn(order[i], order[i + 1]);
+  return total;
+}
+
 // Mejora un recorrido abierto invirtiendo tramos mientras se acorte (2-opt).
 // El primer lugar se mantiene fijo: es donde el usuario empieza el tour.
-function twoOpt(initialOrder, distanceFn) {
-  const order = [...initialOrder];
-  const last = order.length - 1;
+// Recalcula el costo completo porque por calles ir de A a B puede costar distinto
+// que de B a A (sentidos unicos), asi que invertir un tramo cambia todo su interior.
+function twoOpt(initialOrder, costFn) {
+  let order = [...initialOrder];
+  let bestCost = routeCost(order, costFn);
   const EPSILON = 1e-6;
   let improved = true;
 
   while (improved) {
     improved = false;
-    for (let i = 1; i < last; i++) {
-      for (let k = i + 1; k <= last; k++) {
-        const before =
-          distanceFn(order[i - 1], order[i]) + (k < last ? distanceFn(order[k], order[k + 1]) : 0);
-        const after =
-          distanceFn(order[i - 1], order[k]) + (k < last ? distanceFn(order[i], order[k + 1]) : 0);
-
-        if (after < before - EPSILON) {
-          const reversed = order.slice(i, k + 1).reverse();
-          order.splice(i, reversed.length, ...reversed);
+    for (let i = 1; i < order.length - 1; i++) {
+      for (let k = i + 1; k < order.length; k++) {
+        const candidate = [
+          ...order.slice(0, i),
+          ...order.slice(i, k + 1).reverse(),
+          ...order.slice(k + 1),
+        ];
+        const cost = routeCost(candidate, costFn);
+        if (cost < bestCost - EPSILON) {
+          order = candidate;
+          bestCost = cost;
           improved = true;
         }
       }
@@ -51,16 +60,9 @@ function twoOpt(initialOrder, distanceFn) {
   return order;
 }
 
-function routeDistance(order, distanceFn) {
-  let total = 0;
-  for (let i = 0; i < order.length - 1; i++) total += distanceFn(order[i], order[i + 1]);
-  return total;
+function optimizeOrder(nodeIds, costFn) {
+  if (nodeIds.length === 0) return [];
+  return twoOpt(nearestNeighborOrder(nodeIds, costFn), costFn);
 }
 
-function optimizeRoute(nodeIds, distanceFn) {
-  if (nodeIds.length === 0) return { order: [], totalDistance: 0 };
-  const order = twoOpt(nearestNeighborOrder(nodeIds, distanceFn), distanceFn);
-  return { order, totalDistance: routeDistance(order, distanceFn) };
-}
-
-module.exports = { nearestNeighborOrder, optimizeRoute, routeDistance };
+module.exports = { nearestNeighborOrder, optimizeOrder, routeCost };

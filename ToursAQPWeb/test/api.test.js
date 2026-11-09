@@ -1,6 +1,7 @@
-const { test, before, after } = require('node:test');
+const { test, before, after, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
 
@@ -13,9 +14,56 @@ process.env.TOURS_DB_PATH = tmpDb;
 const db = require('../src/db');
 const { createApp } = require('../src/app');
 const { generateSalt, hashPassword } = require('../src/auth');
+const { clearRoutingCache } = require('../src/routing');
+
+const UNREACHABLE_URL = 'http://127.0.0.1:1';
 
 let server;
 let base;
+let fakeOsrm;
+let fakeOsrmUrl;
+const originalConsoleError = console.error;
+
+// Servidor OSRM falso: las pruebas no dependen de internet ni del servicio publico.
+// Con n puntos, la matriz solo hace barato el recorrido 0 -> n-1 -> n-2 -> ... -> 1.
+function handleFakeOsrm(req, res) {
+  const { pathname } = new URL(req.url, 'http://localhost');
+  const [, service] = pathname.match(/\/(route|table)\/v1\//);
+  const coords = pathname.split('/').pop().split(';').map((pair) => pair.split(',').map(Number));
+  const n = coords.length;
+
+  const body =
+    service === 'table'
+      ? {
+          code: 'Ok',
+          durations: coords.map((_, i) =>
+            coords.map((__, j) => {
+              if (i === j) return 0;
+              return j === (i === 0 ? n - 1 : i - 1) ? 1 : 100;
+            })
+          ),
+        }
+      : {
+          code: 'Ok',
+          routes: [
+            {
+              distance: 1000 * (n - 1),
+              duration: 600 * (n - 1),
+              geometry: { coordinates: [...coords, [-71.5, -16.4]] },
+              legs: coords.slice(1).map(() => ({ distance: 1000, duration: 600 })),
+            },
+          ],
+        };
+
+  res.setHeader('Content-Type', 'application/json');
+  res.end(JSON.stringify(body));
+}
+
+function useRoutingService(url) {
+  process.env.ROUTING_FOOT_URL = url;
+  process.env.ROUTING_CAR_URL = url;
+  clearRoutingCache();
+}
 
 function request(method, url, { body, cookie } = {}) {
   return fetch(base + url, {
@@ -41,42 +89,89 @@ before(async () => {
      VALUES ('turista', ?, ?, 'Test', 'Turista', 'user')`
   ).run(hashPassword('clave123', salt), salt);
 
+  fakeOsrm = http.createServer(handleFakeOsrm).listen(0);
+  await new Promise((resolve) => fakeOsrm.once('listening', resolve));
+  fakeOsrmUrl = `http://127.0.0.1:${fakeOsrm.address().port}`;
+
   server = createApp().listen(0);
   await new Promise((resolve) => server.once('listening', resolve));
   base = `http://127.0.0.1:${server.address().port}`;
 });
 
+beforeEach(() => {
+  useRoutingService(fakeOsrmUrl);
+  console.error = originalConsoleError;
+});
+
 after(() => {
   server.close();
   server.closeAllConnections();
+  fakeOsrm.close();
+  fakeOsrm.closeAllConnections();
   db.close();
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-test('la busqueda ignora acentos y mayusculas', async () => {
-  const labels = async (q) =>
-    (await (await request('GET', `/api/search?q=${q}`)).json()).map((n) => n.label);
-
-  assert.ok((await labels('volcan')).includes('Volcán Misti'));
-  assert.ok((await labels('CANON')).includes('Cañón del Colca'));
-  assert.ok((await labels('Volc%C3%A1n')).includes('Volcán Misti'));
-});
-
-test('compute devuelve todos los lugares y empieza en el primero', async () => {
-  const res = await request('POST', '/api/route/compute', { body: { nodeIds: [1, 2, 3, 4] } });
-  const { order, totalDistance } = await res.json();
+test('directions sigue las calles y respeta el orden indicado', async () => {
+  const res = await request('POST', '/api/route/directions', { body: { nodeIds: [3, 1, 2] } });
+  const route = await res.json();
 
   assert.equal(res.status, 200);
-  assert.equal(order[0], 1);
-  assert.deepEqual([...order].sort(), [1, 2, 3, 4]);
-  assert.ok(totalDistance > 0);
+  assert.equal(route.routed, true);
+  assert.deepEqual(route.order, [3, 1, 2]);
+  assert.equal(route.distance, 2000);
+  assert.equal(route.duration, 1200);
+  assert.equal(route.legs.length, 2);
+  // La geometria llega como [lat, lon], el formato que usa Leaflet.
+  assert.deepEqual(route.geometry.at(-1), [-16.4, -71.5]);
 });
 
-test('compute rechaza entradas invalidas con 400', async () => {
-  for (const nodeIds of [[1], [1, 1], [{ a: 1 }, 2], ['1', '2'], [1, 99999], 'x']) {
-    const res = await request('POST', '/api/route/compute', { body: { nodeIds } });
-    assert.equal(res.status, 400, JSON.stringify(nodeIds));
-    assert.ok((await res.json()).error);
+test('compute ordena segun los tiempos por calles', async () => {
+  const res = await request('POST', '/api/route/compute', {
+    body: { nodeIds: [1, 2, 3, 4], profile: 'car' },
+  });
+  const route = await res.json();
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(route.order, [1, 4, 3, 2]);
+  assert.equal(route.routed, true);
+});
+
+test('si el servicio de rutas falla, avisa y usa la linea recta', async () => {
+  useRoutingService(UNREACHABLE_URL);
+  console.error = () => {};
+
+  for (const endpoint of ['directions', 'compute']) {
+    const res = await request('POST', `/api/route/${endpoint}`, { body: { nodeIds: [1, 2, 3] } });
+    const route = await res.json();
+
+    assert.equal(res.status, 200);
+    assert.equal(route.routed, false);
+    assert.equal(route.geometry.length, 3);
+    assert.ok(route.distance > 0);
+    assert.equal(route.legs.length, 2);
+  }
+});
+
+test('el calculo de rutas rechaza entradas invalidas con 400', async () => {
+  const invalid = [
+    { nodeIds: [1] },
+    { nodeIds: [1, 1] },
+    { nodeIds: [{ a: 1 }, 2] },
+    { nodeIds: ['1', '2'] },
+    { nodeIds: [1, 99999] },
+    { nodeIds: 'x' },
+    { nodeIds: [1, 2], profile: 'avion' },
+    { nodeIds: [1, 2], profile: '__proto__' },
+    { nodeIds: Array.from({ length: 26 }, (_, i) => i + 1) },
+  ];
+
+  for (const body of invalid) {
+    for (const endpoint of ['directions', 'compute']) {
+      const res = await request('POST', `/api/route/${endpoint}`, { body });
+      assert.equal(res.status, 400, JSON.stringify(body));
+      assert.ok((await res.json()).error);
+    }
   }
 });
 
@@ -90,26 +185,32 @@ test('los errores son JSON y no exponen trazas', async () => {
   assert.ok((await missing.json()).error);
 });
 
-test('una ruta guardada solo la ve su dueno y conserva el orden', async () => {
+test('una ruta guardada solo la ve y la elimina su dueno, y conserva el orden', async () => {
   const admin = await login('admin', 'admin123');
-  const nodeIds = [3, 1, 2];
 
   const created = await request('POST', '/api/routes', {
     cookie: admin,
-    body: { name: 'Mi ruta', nodeIds },
+    body: { name: 'Mi ruta', nodeIds: [3, 1, 2] },
   });
   assert.equal(created.status, 200);
   const { id } = await created.json();
 
   const own = await request('GET', `/api/routes/${id}`, { cookie: admin });
   assert.equal(own.status, 200);
-  assert.deepEqual((await own.json()).edges, [{ from: 3, to: 1 }, { from: 1, to: 2 }]);
+  assert.deepEqual((await own.json()).order, [3, 1, 2]);
 
   assert.equal((await request('GET', `/api/routes/${id}`)).status, 401);
+  assert.equal((await request('DELETE', `/api/routes/${id}`)).status, 401);
 
   const other = await login('turista', 'clave123');
   assert.equal((await request('GET', `/api/routes/${id}`, { cookie: other })).status, 404);
   assert.equal((await request('GET', '/api/routes/abc', { cookie: other })).status, 404);
+  assert.equal((await request('DELETE', `/api/routes/${id}`, { cookie: other })).status, 404);
+
+  assert.equal((await request('DELETE', `/api/routes/${id}`, { cookie: admin })).status, 200);
+  assert.equal((await request('GET', `/api/routes/${id}`, { cookie: admin })).status, 404);
+  const edges = db.prepare('SELECT COUNT(*) AS c FROM user_route_edges WHERE user_route_id = ?').get(id);
+  assert.equal(edges.c, 0);
 });
 
 test('guardar rutas y administrar lugares exige rol admin', async () => {

@@ -3,12 +3,23 @@ const { rateLimit } = require('express-rate-limit');
 const db = require('../db');
 const { verifyPassword } = require('../auth');
 const { parseUbication, haversine } = require('../geo');
-const { optimizeRoute } = require('../graph');
+const { optimizeOrder } = require('../graph');
+const { isValidProfile, getDurationMatrix, getDirections } = require('../routing');
 
 const router = express.Router();
 
-const MAX_ROUTE_NODES = 100;
+const MAX_ROUTE_NODES = 25;
 const MAX_ROUTE_NAME = 100;
+const WALKING_SECONDS_PER_METER = 0.72; // ~5 km/h, solo para el calculo en linea recta
+
+// Cada calculo consulta un servicio publico externo: se limita por visitante.
+const routingLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 60,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Demasiados cálculos de ruta. Espera un momento.' },
+});
 
 // Solo cuentan los intentos fallidos: frena la fuerza bruta sin molestar a quien entra bien.
 const loginLimiter = rateLimit({
@@ -59,11 +70,74 @@ function nodeToCoord(row) {
   };
 }
 
-function normalizeText(text) {
-  return String(text ?? '')
-    .normalize('NFD')
-    .replace(/\p{M}/gu, '')
-    .toLowerCase();
+function straightDistance(a, b) {
+  return haversine(a.lat, a.lon, b.lat, b.lon);
+}
+
+// Sin servicio de rutas no se conocen las calles: se devuelve la linea recta y routed=false
+// para que la interfaz avise al usuario de que es solo una aproximacion.
+function straightLineRoute(coords, profile) {
+  const legs = coords.slice(1).map((c, i) => {
+    const distance = straightDistance(coords[i], c);
+    return { distance, duration: profile === 'foot' ? distance * WALKING_SECONDS_PER_METER : null };
+  });
+
+  return {
+    routed: false,
+    distance: legs.reduce((sum, leg) => sum + leg.distance, 0),
+    duration: profile === 'foot' ? legs.reduce((sum, leg) => sum + leg.duration, 0) : null,
+    geometry: coords.map((c) => [c.lat, c.lon]),
+    legs,
+  };
+}
+
+async function buildRoute(order, coordsById, profile) {
+  const coords = order.map((id) => coordsById.get(id));
+  try {
+    return { routed: true, ...(await getDirections(coords, profile)) };
+  } catch (err) {
+    console.error('Servicio de rutas no disponible:', err.message);
+    return straightLineRoute(coords, profile);
+  }
+}
+
+async function computeBestOrder(nodeIds, coordsById, profile) {
+  const coords = nodeIds.map((id) => coordsById.get(id));
+  let matrix = null;
+  try {
+    matrix = await getDurationMatrix(coords, profile);
+  } catch (err) {
+    console.error('Servicio de rutas no disponible:', err.message);
+  }
+
+  const indexById = new Map(nodeIds.map((id, i) => [id, i]));
+  const costFn = matrix
+    ? (a, b) => matrix[indexById.get(a)][indexById.get(b)]
+    : (a, b) => straightDistance(coordsById.get(a), coordsById.get(b));
+
+  return optimizeOrder(nodeIds, costFn);
+}
+
+// Valida lo comun de los calculos de ruta; responde el error y devuelve null si no es valido.
+function parseRouteRequest(req, res) {
+  const { nodeIds, profile = 'foot' } = req.body || {};
+
+  if (!isValidNodeIdList(nodeIds)) {
+    res.status(400).json({ error: NODE_IDS_ERROR });
+    return null;
+  }
+  if (!isValidProfile(profile)) {
+    res.status(400).json({ error: 'Modo de transporte inválido' });
+    return null;
+  }
+
+  const coordsById = findCoordsById(nodeIds);
+  if (coordsById.size !== nodeIds.length) {
+    res.status(400).json({ error: 'Algún lugar no existe o no tiene coordenadas válidas' });
+    return null;
+  }
+
+  return { nodeIds, profile, coordsById };
 }
 
 function findCoordsById(nodeIds) {
@@ -135,72 +209,36 @@ router.get('/types', (req, res) => {
   res.json(rows);
 });
 
-router.get('/search', (req, res) => {
-  const q = normalizeText(req.query.q).trim();
-  if (!q) return res.json([]);
-
-  // SQLite LIKE no ignora acentos ("volcan" no encontraria "Volcán"), asi que se filtra aqui.
-  const rows = db
-    .prepare(NODE_WITH_CATEGORY_SELECT)
-    .all()
-    .filter((row) => normalizeText(row.label).includes(q))
-    .slice(0, 15);
-
-  res.json(rows.map(({ ubication, ...rest }) => rest));
-});
-
-router.get('/nodes', (req, res) => {
-  const type = req.query.type;
-  const rows = typeof type === 'string'
-    ? db.prepare(`${NODE_WITH_CATEGORY_SELECT} WHERE types.name = ?`).all(type)
-    : db.prepare(NODE_WITH_CATEGORY_SELECT).all();
-
-  res.json(rows.map(({ ubication, ...rest }) => rest));
-});
-
 router.get('/nodes/all', (req, res) => {
-  const rows = db.prepare(NODE_WITH_CATEGORY_SELECT).all();
+  const rows = db.prepare(`${NODE_WITH_CATEGORY_SELECT} ORDER BY nodes.label`).all();
   res.json(rows.map(nodeToCoord).filter((n) => n.lat !== null));
 });
 
-router.get('/nodes/coords', (req, res) => {
-  const ids = String(req.query.ids || '')
-    .split(',')
-    .map((v) => Number(v))
-    .filter((v) => Number.isInteger(v) && v > 0)
-    .slice(0, MAX_ROUTE_NODES);
+// ----- Calculo de rutas por calles -----
 
-  if (ids.length === 0) return res.json([]);
-
-  const placeholders = ids.map(() => '?').join(',');
-  const rows = db
-    .prepare(`${NODE_WITH_CATEGORY_SELECT} WHERE nodes.id IN (${placeholders})`)
-    .all(...ids);
-
-  res.json(rows.map(nodeToCoord));
+// Traza la ruta respetando el orden indicado.
+router.post('/route/directions', routingLimiter, async (req, res, next) => {
+  try {
+    const parsed = parseRouteRequest(req, res);
+    if (!parsed) return;
+    const { nodeIds, profile, coordsById } = parsed;
+    res.json({ order: nodeIds, ...(await buildRoute(nodeIds, coordsById, profile)) });
+  } catch (err) {
+    next(err);
+  }
 });
 
-// ----- Calculo de ruta optimizada -----
-
-router.post('/route/compute', (req, res) => {
-  const { nodeIds } = req.body || {};
-
-  if (!isValidNodeIdList(nodeIds)) {
-    return res.status(400).json({ error: NODE_IDS_ERROR });
+// Busca el orden mas rapido, manteniendo la primera parada como punto de partida.
+router.post('/route/compute', routingLimiter, async (req, res, next) => {
+  try {
+    const parsed = parseRouteRequest(req, res);
+    if (!parsed) return;
+    const { nodeIds, profile, coordsById } = parsed;
+    const order = await computeBestOrder(nodeIds, coordsById, profile);
+    res.json({ order, ...(await buildRoute(order, coordsById, profile)) });
+  } catch (err) {
+    next(err);
   }
-
-  const coordsById = findCoordsById(nodeIds);
-  if (coordsById.size !== nodeIds.length) {
-    return res.status(400).json({ error: 'Algún lugar no existe o no tiene coordenadas válidas' });
-  }
-
-  const distanceFn = (a, b) => {
-    const ca = coordsById.get(a);
-    const cb = coordsById.get(b);
-    return haversine(ca.lat, ca.lon, cb.lat, cb.lon);
-  };
-
-  res.json(optimizeRoute(nodeIds, distanceFn));
 });
 
 // ----- Rutas guardadas -----
@@ -231,17 +269,30 @@ router.get('/routes/:id', requireUser, (req, res) => {
     .all(routeId);
 
   const nodeIds = [...new Set(edgeRows.flatMap((e) => [e.from_node_id, e.to_node_id]))];
-  if (nodeIds.length === 0) return res.json({ nodes: [], edges: [] });
+  // Los tramos estan en orden, asi que al eliminar repetidos queda la secuencia de paradas.
+  res.json({ order: nodeIds });
+});
 
-  const placeholders = nodeIds.map(() => '?').join(',');
-  const nodeRows = db
-    .prepare(`${NODE_WITH_CATEGORY_SELECT} WHERE nodes.id IN (${placeholders})`)
-    .all(...nodeIds);
+router.delete('/routes/:id', requireUser, (req, res) => {
+  const routeId = Number(req.params.id);
+  const route = Number.isInteger(routeId)
+    ? db
+        .prepare('SELECT id FROM user_routes WHERE id = ? AND user_id = ?')
+        .get(routeId, req.session.user.id)
+    : null;
+  if (!route) return res.status(404).json({ error: 'Ruta no encontrada' });
 
-  res.json({
-    nodes: nodeRows.map(nodeToCoord),
-    edges: edgeRows.map((e) => ({ from: e.from_node_id, to: e.to_node_id })),
-  });
+  db.exec('BEGIN');
+  try {
+    db.prepare('DELETE FROM user_route_edges WHERE user_route_id = ?').run(routeId);
+    db.prepare('DELETE FROM user_routes WHERE id = ?').run(routeId);
+    db.exec('COMMIT');
+    res.json({ ok: true });
+  } catch (err) {
+    db.exec('ROLLBACK');
+    console.error(err);
+    res.status(500).json({ error: 'No se pudo eliminar la ruta' });
+  }
 });
 
 router.post('/routes', requireAdmin, (req, res) => {

@@ -1,39 +1,47 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { parseUbication } = require('../src/geo');
-const { nearestNeighborOrder, optimizeRoute, routeDistance } = require('../src/graph');
+const { nearestNeighborOrder, optimizeOrder, routeCost } = require('../src/graph');
 
-// Puntos sobre una recta: la distancia es la diferencia de posiciones.
-const lineDistance = (positions) => (a, b) => Math.abs(positions[a] - positions[b]);
+// Puntos sobre una recta: el costo es la diferencia de posiciones.
+const lineCost = (positions) => (a, b) => Math.abs(positions[a] - positions[b]);
 
-test('optimizeRoute conserva el primer lugar y visita todos una sola vez', () => {
-  const dist = lineDistance({ 1: 5, 2: 0, 3: 9, 4: 2, 5: 7 });
-  const { order } = optimizeRoute([1, 2, 3, 4, 5], dist);
+test('optimizeOrder conserva el primer lugar y visita todos una sola vez', () => {
+  const cost = lineCost({ 1: 5, 2: 0, 3: 9, 4: 2, 5: 7 });
+  const order = optimizeOrder([1, 2, 3, 4, 5], cost);
 
   assert.equal(order[0], 1);
   assert.deepEqual([...order].sort(), [1, 2, 3, 4, 5]);
 });
 
-test('optimizeRoute acorta un recorrido donde el vecino mas cercano se equivoca', () => {
+test('optimizeOrder mejora un recorrido donde el vecino mas cercano se equivoca', () => {
   // Vecino mas cercano: 0 -> 2 -> -3 -> 10 = 20. Lo mejor es ir primero a -3: 0 -> -3 -> 2 -> 10 = 16.
-  const dist = lineDistance({ 1: 0, 2: 2, 3: -3, 4: 10 });
+  const cost = lineCost({ 1: 0, 2: 2, 3: -3, 4: 10 });
   const ids = [1, 2, 3, 4];
 
-  assert.equal(routeDistance(nearestNeighborOrder(ids, dist), dist), 20);
-  assert.deepEqual(optimizeRoute(ids, dist), { order: [1, 3, 2, 4], totalDistance: 16 });
+  assert.equal(routeCost(nearestNeighborOrder(ids, cost), cost), 20);
+  assert.deepEqual(optimizeOrder(ids, cost), [1, 3, 2, 4]);
 });
 
-test('optimizeRoute encuentra el recorrido optimo en un caso pequeno', () => {
+test('optimizeOrder encuentra el recorrido optimo en un caso pequeno', () => {
   // Cuadrado de lado 1: lo optimo es recorrer el perimetro (3), sin cruzar la diagonal.
   const pts = { 1: [0, 0], 2: [1, 1], 3: [0, 1], 4: [1, 0] };
-  const dist = (a, b) => Math.hypot(pts[a][0] - pts[b][0], pts[a][1] - pts[b][1]);
+  const cost = (a, b) => Math.hypot(pts[a][0] - pts[b][0], pts[a][1] - pts[b][1]);
 
-  assert.ok(Math.abs(optimizeRoute([1, 2, 3, 4], dist).totalDistance - 3) < 1e-9);
+  assert.ok(Math.abs(routeCost(optimizeOrder([1, 2, 3, 4], cost), cost) - 3) < 1e-9);
 });
 
-test('optimizeRoute admite listas vacias y de un solo lugar', () => {
-  assert.deepEqual(optimizeRoute([], () => 0), { order: [], totalDistance: 0 });
-  assert.deepEqual(optimizeRoute([7], () => 0), { order: [7], totalDistance: 0 });
+test('optimizeOrder tiene en cuenta los sentidos unicos', () => {
+  // Solo es barato avanzar en el sentido 1 -> 4 -> 3 -> 2; al reves cuesta mucho.
+  const cheap = new Set(['1-4', '4-3', '3-2']);
+  const cost = (a, b) => (cheap.has(`${a}-${b}`) ? 1 : 100);
+
+  assert.deepEqual(optimizeOrder([1, 2, 3, 4], cost), [1, 4, 3, 2]);
+});
+
+test('optimizeOrder admite listas vacias y de un solo lugar', () => {
+  assert.deepEqual(optimizeOrder([], () => 0), []);
+  assert.deepEqual(optimizeOrder([7], () => 0), [7]);
 });
 
 test('parseUbication rechaza coordenadas invalidas', () => {

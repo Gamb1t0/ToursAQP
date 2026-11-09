@@ -24,17 +24,16 @@ Luego abrir `http://localhost:3000`. Más detalles en [`ToursAQPWeb/README.md`](
 
 - **Node.js** (`node:sqlite` nativo, sin dependencias de compilación) + **Express** en el backend.
 - **SQLite** para lugares, usuarios y rutas.
-- **HTML/CSS/JavaScript** en el frontend, con **Leaflet + OpenStreetMap** para el mapa.
+- **HTML/CSS/JavaScript** en el frontend, con **Leaflet + OpenStreetMap** para el mapa y **OSRM** para las rutas por calles.
 - Contraseñas con hash **PBKDF2-HMAC-SHA256** y sal por usuario.
 
 ### Funcionalidades principales
 
-- Búsqueda de lugares turísticos y filtro por categoría (categorías cargadas desde la base de datos).
-- Mapa real interactivo (calles, relieve y volcanes de Arequipa de verdad) con marcadores, popups con descripción y categoría, y zoom nativo.
-- Ruta optimizada (vecino más cercano + 2-opt) con distancia en línea recta y tiempo mínimo caminando.
-- Ver todos los lugares turísticos en el mapa, y el orden en que se agregaron a la selección actual.
-- Inicio de sesión de usuarios y administración de nodos para administradores.
-- Guardado y consulta de rutas.
+- Búsqueda al escribir y filtro por categoría, con todos los lugares visibles en la lista y en el mapa.
+- Recorridos trazados por las calles reales (OSRM + OpenStreetMap), a pie o en auto, con distancia y tiempo por tramo.
+- Orden más rápido de las paradas según tiempos reales (vecino más cercano + 2-opt), o reordenado a mano.
+- Inicio de sesión de usuarios y edición de lugares para administradores.
+- Guardado, apertura y eliminación de rutas.
 
 Las coordenadas de los 55 lugares se corrigieron con datos reales (geocodificación vía OpenStreetMap/Nominatim) — antes eran aproximaciones inventadas alrededor de un único punto. Se descartaron DFS y BFS como "recorridos": eran ejercicios de teoría de grafos sin utilidad real para planificar un tour, y quedó solo el cálculo de ruta optimizada.
 

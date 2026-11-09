@@ -1,29 +1,41 @@
-const AREQUIPA_CENTER = [-16.409, -71.5375];
+const AREQUIPA_CENTER = [-16.3988, -71.5369];
+const MAX_STOPS = 25;
+const MAX_KM_A_PIE = 15;
+const ROUTE_DEBOUNCE_MS = 300;
+const TOAST_MS = 3500;
 
-const MIN_POR_KM_CAMINANDO = 12; // ~5 km/h
-const MAX_KM_CAMINANDO = 15;
-
-const CATEGORY_EMOJI = {
-  'Histórico': '🏛️',
-  'Cultural': '🎭',
-  'Natural': '🌋',
-  'Comercial': '🛍️',
-  'Educativo': '📚',
-  'Restaurantes': '🍽️',
-  'Entretenimiento': '🎉',
+const CATEGORY_COLORS = {
+  'Histórico': '#8a5a2b',
+  'Cultural': '#7b4b94',
+  'Natural': '#2e7d4f',
+  'Comercial': '#c2761b',
+  'Educativo': '#2b6cb0',
+  'Restaurantes': '#b83a5e',
+  'Entretenimiento': '#0e8a8a',
 };
 
 const state = {
-  selected: [],           // {id, code, label, desc, category, lat, lon} en orden de seleccion
-  highlightPath: null,    // {order: [ids]} ruta optima calculada
-  mode: 'empty',          // 'empty' | 'selection' | 'all' | 'saved'
-  allNodes: [],
-  savedNodes: [],
-  savedEdges: [],
+  places: [],
+  types: [],
+  placesById: new Map(),
+  search: '',
+  category: null,
+  stops: [],              // ids en orden de visita
+  profile: 'foot',        // 'foot' | 'car'
+  route: null,            // respuesta del servidor para las paradas actuales
+  loadingRoute: false,
   user: null,
+  savedRoutes: [],
+  tab: 'explorar',
 };
 
-let map, layerGroup;
+let map;
+let markersLayer;
+let routeLayer;
+const markersById = new Map();
+let routeRequestId = 0;
+let routeTimer = null;
+let toastTimer = null;
 
 const el = (id) => document.getElementById(id);
 
@@ -33,8 +45,32 @@ function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]);
 }
 
-function categoryEmoji(cat) {
-  return CATEGORY_EMOJI[cat] || '📍';
+function normalizeText(text) {
+  return String(text ?? '')
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase();
+}
+
+function categoryColor(category) {
+  return CATEGORY_COLORS[category] || '#6b6158';
+}
+
+function formatDistance(meters) {
+  if (meters < 1000) return `${Math.round(meters)} m`;
+  return `${(meters / 1000).toFixed(1)} km`;
+}
+
+function formatDuration(seconds) {
+  const totalMinutes = Math.max(1, Math.round(seconds / 60));
+  if (totalMinutes < 60) return `${totalMinutes} min`;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return minutes ? `${hours} h ${minutes} min` : `${hours} h`;
+}
+
+function isSameOrder(a, b) {
+  return a.length === b.length && a.every((id, i) => id === b[i]);
 }
 
 async function api(path, options) {
@@ -43,459 +79,709 @@ async function api(path, options) {
     ...options,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Error de servidor');
+  if (!res.ok) throw new Error(data.error || 'Error del servidor');
   return data;
 }
 
-// ===== Mapa (Leaflet) =====
+// Se usa popover para que el aviso quede tambien encima de los dialogos abiertos.
+function toast(message, { error = false } = {}) {
+  const box = el('toast');
+  box.textContent = message;
+  box.classList.toggle('is-error', error);
+  if (box.matches(':popover-open')) box.hidePopover();
+  box.showPopover();
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => box.hidePopover(), TOAST_MS);
+}
+
+function confirmDialog(title, text) {
+  const dialog = el('dlgConfirmar');
+  el('confirmarTitulo').textContent = title;
+  el('confirmarTexto').textContent = text;
+  dialog.returnValue = 'cancel';
+  dialog.showModal();
+  return new Promise((resolve) => {
+    dialog.addEventListener('close', () => resolve(dialog.returnValue === 'ok'), { once: true });
+  });
+}
+
+// ===== Pestanas =====
+
+function setTab(tab) {
+  state.tab = tab;
+  const panels = { explorar: 'panelExplorar', ruta: 'panelRuta', guardadas: 'panelGuardadas' };
+  for (const [name, panelId] of Object.entries(panels)) {
+    el(panelId).classList.toggle('hidden', name !== tab);
+  }
+  document.querySelectorAll('.tab').forEach((button) => {
+    button.setAttribute('aria-selected', String(button.dataset.tab === tab));
+  });
+}
+
+// ===== Mapa =====
 
 function initMap() {
-  map = L.map('mapaCanvas', { zoomControl: true }).setView(AREQUIPA_CENTER, 13);
+  map = L.map('mapa').setView(AREQUIPA_CENTER, 14);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · Rutas: <a href="https://routing.openstreetmap.de/about.html">FOSSGIS</a>',
     maxZoom: 19,
   }).addTo(map);
-  layerGroup = L.layerGroup().addTo(map);
+  routeLayer = L.layerGroup().addTo(map);
+  markersLayer = L.layerGroup().addTo(map);
 }
 
-function popupHtml(p) {
-  const emoji = categoryEmoji(p.category);
-  const cat = p.category ? `<span class="popup-cat">${escapeHtml(p.category)}</span>` : '';
-  const desc = p.desc ? `<p>${escapeHtml(p.desc)}</p>` : '';
-  return `<strong>${emoji} ${escapeHtml(p.label)}</strong> ${cat}${desc}`;
-}
-
-function popupContent(p) {
+function popupContent(place) {
+  const added = state.stops.includes(place.id);
   const container = document.createElement('div');
-  container.innerHTML = popupHtml(p);
+  container.innerHTML =
+    `<strong class="popup-title">${escapeHtml(place.label)}</strong>` +
+    `<span class="popup-cat"><span class="dot" style="--cat:${categoryColor(place.category)}"></span>${escapeHtml(place.category || 'Sin categoría')}</span>` +
+    (place.desc ? `<p class="popup-desc">${escapeHtml(place.desc)}</p>` : '');
 
-  if (state.mode === 'all') {
-    const btn = document.createElement('button');
-    btn.className = 'popup-add';
-    btn.textContent = 'Agregar a mi ruta';
-    btn.onclick = () => addSelected(p);
-    container.appendChild(btn);
-  }
+  const button = document.createElement('button');
+  button.className = `btn btn-sm popup-action ${added ? 'btn-ghost' : 'btn-primary'}`;
+  button.textContent = added ? 'Quitar de mi ruta' : 'Agregar a mi ruta';
+  button.onclick = () => {
+    map.closePopup();
+    toggleStop(place.id);
+  };
+  container.appendChild(button);
   return container;
 }
 
-function activePoints() {
-  if (state.mode === 'selection') return state.selected;
-  if (state.mode === 'all') return state.allNodes;
-  if (state.mode === 'saved') return state.savedNodes;
-  return [];
+function placeIcon(place) {
+  const stopIndex = state.stops.indexOf(place.id);
+  if (stopIndex >= 0) {
+    return L.divIcon({
+      className: '',
+      html: `<div class="pin pin-stop">${stopIndex + 1}</div>`,
+      iconSize: [30, 30],
+      iconAnchor: [15, 15],
+      popupAnchor: [0, -14],
+    });
+  }
+  return L.divIcon({
+    className: '',
+    html: `<div class="pin pin-place" style="--cat:${categoryColor(place.category)}"></div>`,
+    iconSize: [16, 16],
+    iconAnchor: [8, 8],
+    popupAnchor: [0, -8],
+  });
 }
 
-function redraw() {
-  const points = activePoints();
-  layerGroup.clearLayers();
+function matchesFilters(place) {
+  const matchesCategory = !state.category || place.category === state.category;
+  const matchesSearch = normalizeText(place.label).includes(normalizeText(state.search).trim());
+  return matchesCategory && matchesSearch;
+}
 
-  const hasPoints = points.length > 0;
-  el('mapaVacio').classList.toggle('hidden', hasPoints);
-  el('mapaCanvas').classList.toggle('hidden', !hasPoints);
-  if (!hasPoints) return;
+function renderMarkers() {
+  markersLayer.clearLayers();
+  markersById.clear();
 
-  // Leaflet mide 0x0 mientras el contenedor esta oculto.
-  map.invalidateSize({ animate: false });
+  for (const place of state.places) {
+    const stopIndex = state.stops.indexOf(place.id);
+    // Las paradas siguen visibles aunque el filtro las oculte de la lista.
+    if (stopIndex < 0 && !matchesFilters(place)) continue;
 
-  if (state.mode === 'selection' && points.length >= 2 && !state.highlightPath) {
-    L.polyline(points.map((p) => [p.lat, p.lon]), { color: '#FFFF00', weight: 2 }).addTo(layerGroup);
-  }
-
-  if (state.mode === 'saved') {
-    const byId = new Map(points.map((p) => [p.id, p]));
-    for (const e of state.savedEdges) {
-      const a = byId.get(e.from);
-      const b = byId.get(e.to);
-      if (a && b) L.polyline([[a.lat, a.lon], [b.lat, b.lon]], { color: '#00FF66', weight: 3 }).addTo(layerGroup);
-    }
-  }
-
-  if (state.mode === 'selection' && state.highlightPath) {
-    const byId = new Map(points.map((p) => [p.id, p]));
-    const latlngs = state.highlightPath.order
-      .map((id) => byId.get(id))
-      .filter(Boolean)
-      .map((p) => [p.lat, p.lon]);
-    L.polyline(latlngs, { color: '#00FF66', weight: 4 }).addTo(layerGroup);
-  }
-
-  for (const p of points) {
-    L.circleMarker([p.lat, p.lon], {
-      radius: 8,
-      color: '#000000',
-      weight: 1,
-      fillColor: '#00FFFF',
-      fillOpacity: 1,
+    const marker = L.marker([place.lat, place.lon], {
+      icon: placeIcon(place),
+      title: place.label,
+      alt: place.label,
+      zIndexOffset: stopIndex >= 0 ? 1000 : 0,
     })
-      .addTo(layerGroup)
-      .bindPopup(popupContent(p));
+      .bindPopup(() => popupContent(place))
+      .addTo(markersLayer);
+    markersById.set(place.id, marker);
   }
-
-  map.fitBounds(L.latLngBounds(points.map((p) => [p.lat, p.lon])), { padding: [40, 40], maxZoom: 17 });
 }
 
-function showInfo(html) {
-  el('rutaInfo').innerHTML = html;
-  el('rutaInfo').classList.remove('hidden');
+function focusPlace(id) {
+  const place = state.placesById.get(id);
+  map.setView([place.lat, place.lon], Math.max(map.getZoom(), 16));
+  markersById.get(id)?.openPopup();
 }
 
-function hideInfo() {
-  el('rutaInfo').classList.add('hidden');
+function renderRouteLine() {
+  routeLayer.clearLayers();
+  if (!state.route) return;
+
+  const { geometry, routed } = state.route;
+  L.polyline(geometry, { color: '#fffdf8', weight: 8, opacity: 0.9 }).addTo(routeLayer);
+  L.polyline(geometry, {
+    color: '#b4482a',
+    weight: 5,
+    dashArray: routed ? null : '4 10',
+  }).addTo(routeLayer);
 }
 
-// ===== Seleccion de lugares =====
+function fitToStops() {
+  const points = state.route
+    ? state.route.geometry
+    : state.stops.map((id) => {
+        const place = state.placesById.get(id);
+        return [place.lat, place.lon];
+      });
+  if (points.length === 0) return;
+  map.fitBounds(L.latLngBounds(points), { padding: [50, 50], maxZoom: 16 });
+}
 
-function renderSelected() {
-  const container = el('ubicacionesLayout');
+// ===== Explorar =====
+
+function renderChips() {
+  const container = el('chipsCategoria');
   container.innerHTML = '';
-  for (const p of state.selected) {
-    const item = document.createElement('div');
-    item.className = 'selected-item';
 
-    const span = document.createElement('span');
-    span.textContent = `${categoryEmoji(p.category)} ${p.label}`;
-    span.onclick = () => {
-      map.setView([p.lat, p.lon], 17);
+  const addChip = (label, value) => {
+    const chip = document.createElement('button');
+    chip.className = 'chip';
+    chip.setAttribute('aria-pressed', String(state.category === value));
+    if (value) {
+      const dot = document.createElement('span');
+      dot.className = 'dot';
+      dot.style.setProperty('--cat', categoryColor(value));
+      chip.appendChild(dot);
+    }
+    chip.append(label);
+    chip.onclick = () => {
+      state.category = value;
+      renderChips();
+      renderPlaces();
+      renderMarkers();
     };
+    container.appendChild(chip);
+  };
 
-    const btn = document.createElement('button');
-    btn.textContent = 'X';
-    btn.onclick = () => removeSelected(p.id);
-
-    item.appendChild(span);
-    item.appendChild(btn);
-    container.appendChild(item);
-  }
+  addChip('Todos', null);
+  for (const type of state.types) addChip(type.name, type.name);
 }
 
-function addSelected(node) {
-  if (state.selected.some((s) => s.id === node.id)) {
-    alert('Ese lugar ya está en tu ruta');
-    return;
-  }
-  state.selected.push(node);
-  state.mode = 'selection';
-  state.highlightPath = null;
-  hideInfo();
-  renderSelected();
-  redraw();
-}
+function renderPlaces() {
+  const visible = state.places.filter(matchesFilters);
+  el('lblResultados').textContent =
+    visible.length === 0
+      ? 'Ningún lugar coincide con tu búsqueda.'
+      : `${visible.length} ${visible.length === 1 ? 'lugar' : 'lugares'}`;
 
-function removeSelected(id) {
-  state.selected = state.selected.filter((s) => s.id !== id);
-  state.highlightPath = null;
-  state.mode = state.selected.length > 0 ? 'selection' : 'empty';
-  hideInfo();
-  renderSelected();
-  redraw();
-}
-
-function getNodosSeleccionados() {
-  return state.selected.map((s) => s.id);
-}
-
-function getNodosParaGuardar() {
-  return state.highlightPath ? state.highlightPath.order : getNodosSeleccionados();
-}
-
-// ===== Busqueda / filtro =====
-
-function showResultsList(items) {
-  const list = el('listaResultadosBusqueda');
+  const list = el('listaLugares');
   list.innerHTML = '';
 
-  if (items.length === 0) {
-    list.classList.add('hidden');
+  for (const place of visible) {
+    const added = state.stops.includes(place.id);
+    const item = document.createElement('li');
+    item.className = 'place-item';
+
+    const main = document.createElement('button');
+    main.className = 'place-main';
+    main.innerHTML =
+      `<span class="place-name">${escapeHtml(place.label)}</span>` +
+      `<span class="place-cat"><span class="dot" style="--cat:${categoryColor(place.category)}"></span>${escapeHtml(place.category || 'Sin categoría')}</span>` +
+      (place.desc ? `<span class="place-desc">${escapeHtml(place.desc)}</span>` : '');
+    main.onclick = () => focusPlace(place.id);
+
+    const add = document.createElement('button');
+    add.className = `add-btn${added ? ' is-added' : ''}`;
+    add.textContent = added ? '✓' : '+';
+    add.setAttribute('aria-label', `${added ? 'Quitar de' : 'Agregar a'} mi ruta: ${place.label}`);
+    add.title = added ? 'Quitar de mi ruta' : 'Agregar a mi ruta';
+    add.onclick = () => toggleStop(place.id);
+
+    item.append(main, add);
+    list.appendChild(item);
+  }
+}
+
+// ===== Mi ruta =====
+
+function toggleStop(id) {
+  if (state.stops.includes(id)) {
+    setStops(state.stops.filter((stopId) => stopId !== id));
+    return;
+  }
+  if (state.stops.length >= MAX_STOPS) {
+    toast(`Una ruta puede tener hasta ${MAX_STOPS} paradas.`, { error: true });
+    return;
+  }
+  setStops([...state.stops, id]);
+}
+
+function moveStop(index, delta) {
+  const stops = [...state.stops];
+  const [id] = stops.splice(index, 1);
+  stops.splice(index + delta, 0, id);
+  setStops(stops);
+}
+
+// Unico punto de cambio de las paradas: mantiene sincronizados lista, mapa y trazado.
+function setStops(stops, { fit = false } = {}) {
+  state.stops = stops;
+  state.route = null;
+  renderPlaces();
+  renderMarkers();
+  renderRouteLine();
+  renderStops();
+  scheduleRouteUpdate({ fit });
+}
+
+function scheduleRouteUpdate({ fit = false } = {}) {
+  clearTimeout(routeTimer);
+  routeRequestId++;
+
+  if (state.stops.length < 2) {
+    state.loadingRoute = false;
+    renderStops();
+    if (fit) fitToStops();
     return;
   }
 
-  for (const item of items) {
-    const row = document.createElement('div');
-    row.innerHTML = `<strong>${categoryEmoji(item.category)} ${escapeHtml(item.label)}</strong>` +
-      (item.desc ? `<small>${escapeHtml(item.desc)}</small>` : '');
-    row.onclick = async () => {
-      list.classList.add('hidden');
-      const coords = await api(`/nodes/coords?ids=${item.id}`);
-      if (coords[0] && coords[0].lat !== null) addSelected(coords[0]);
-    };
-    list.appendChild(row);
-  }
-
-  list.classList.remove('hidden');
+  state.loadingRoute = true;
+  renderStops();
+  routeTimer = setTimeout(() => updateRoute({ fit }), ROUTE_DEBOUNCE_MS);
 }
 
-async function onBuscar() {
-  const texto = el('txtBuscar').value.trim();
-  if (!texto) {
-    el('listaResultadosBusqueda').classList.add('hidden');
+function applyRoute(route) {
+  state.route = route;
+  state.stops = route.order;
+  state.loadingRoute = false;
+  renderMarkers();
+  renderRouteLine();
+  renderStops();
+}
+
+async function updateRoute({ fit }) {
+  const requestId = ++routeRequestId;
+  try {
+    const route = await api('/route/directions', {
+      method: 'POST',
+      body: JSON.stringify({ nodeIds: state.stops, profile: state.profile }),
+    });
+    // Si el usuario cambio algo mientras tanto, esta respuesta ya no vale.
+    if (requestId !== routeRequestId) return;
+    applyRoute(route);
+    // Sin encuadrar de mas: el mapa solo se mueve si la ruta se sale de la vista.
+    if (fit || !map.getBounds().contains(L.latLngBounds(route.geometry))) fitToStops();
+  } catch (err) {
+    if (requestId !== routeRequestId) return;
+    state.loadingRoute = false;
+    renderStops();
+    toast(err.message, { error: true });
+  }
+}
+
+async function onOptimizar() {
+  clearTimeout(routeTimer);
+  const requestId = ++routeRequestId;
+  const previousDuration = state.route?.duration ?? null;
+  const previousOrder = state.stops;
+
+  state.loadingRoute = true;
+  renderStops();
+
+  try {
+    const route = await api('/route/compute', {
+      method: 'POST',
+      body: JSON.stringify({ nodeIds: state.stops, profile: state.profile }),
+    });
+    if (requestId !== routeRequestId) return;
+
+    applyRoute(route);
+    renderPlaces();
+    fitToStops();
+
+    const saved = previousDuration !== null && route.duration !== null ? previousDuration - route.duration : 0;
+    if (isSameOrder(previousOrder, route.order) || saved < 30) {
+      toast('Tus paradas ya estaban en un buen orden.');
+    } else {
+      toast(`Listo: te ahorras ${formatDuration(saved)}.`);
+    }
+  } catch (err) {
+    if (requestId !== routeRequestId) return;
+    state.loadingRoute = false;
+    renderStops();
+    toast(err.message, { error: true });
+  }
+}
+
+function renderNotice() {
+  const notice = el('avisoRuta');
+  notice.innerHTML = '';
+  const { route, profile } = state;
+
+  if (!route) {
+    notice.classList.add('hidden');
     return;
   }
-  showResultsList(await api(`/search?q=${encodeURIComponent(texto)}`));
-}
 
-async function onFiltrar() {
-  const cat = el('comboCategoria').value;
-  const results = await api(cat === '__ALL__' ? '/nodes' : `/nodes?type=${encodeURIComponent(cat)}`);
-  showResultsList(results);
-}
-
-// ===== Recorridos =====
-
-function onVerOriginal() {
-  if (state.selected.length === 0) {
-    alert('Aún no has agregado lugares.');
+  if (!route.routed) {
+    notice.textContent =
+      'No pudimos consultar las calles en este momento. Esto es una estimación en línea recta: la distancia real será mayor.';
+  } else if (profile === 'foot' && route.distance / 1000 > MAX_KM_A_PIE) {
+    notice.append('Es mucho para caminar. ');
+    const change = document.createElement('button');
+    change.textContent = 'Ver en auto';
+    change.onclick = () => setProfile('car');
+    notice.appendChild(change);
+  } else {
+    notice.classList.add('hidden');
     return;
   }
-  const lines = state.selected.map((s, i) => `${i + 1}. ${categoryEmoji(s.category)} ${escapeHtml(s.label)}`).join('<br>');
-  showInfo(`<strong>Orden en que agregaste los lugares:</strong><br>${lines}`);
+  notice.classList.remove('hidden');
 }
 
-// La distancia es en linea recta: la real por calles siempre sera mayor.
-function describirTiempo(metros) {
-  const km = metros / 1000;
-  if (km > MAX_KM_CAMINANDO) return 'demasiado lejos para caminar, considera usar transporte';
-  return `al menos ${Math.round(km * MIN_POR_KM_CAMINANDO)} min caminando`;
+function renderStats() {
+  const { route, stops, loadingRoute } = state;
+  el('statDistancia').textContent = route ? formatDistance(route.distance) : '–';
+  el('statTiempo').textContent = route && route.duration !== null ? formatDuration(route.duration) : '–';
+  document.querySelector('.stats').classList.toggle('is-loading', loadingRoute);
+  document.querySelector('.stats').classList.toggle('hidden', stops.length < 2);
 }
 
-async function onRutaMinima() {
-  if (state.selected.length < 2) {
-    alert('Selecciona al menos 2 lugares');
-    return;
-  }
-  const { order, totalDistance } = await api('/route/compute', {
-    method: 'POST',
-    body: JSON.stringify({ nodeIds: getNodosSeleccionados() }),
+function renderStops() {
+  const { stops, route } = state;
+  const count = stops.length;
+
+  const counter = el('contadorParadas');
+  counter.textContent = count;
+  counter.classList.toggle('hidden', count === 0);
+
+  el('rutaVacia').classList.toggle('hidden', count > 0);
+  el('rutaContenido').classList.toggle('hidden', count === 0);
+
+  document.querySelectorAll('.segment').forEach((button) => {
+    button.setAttribute('aria-checked', String(button.dataset.profile === state.profile));
   });
 
-  const byId = new Map(state.selected.map((s) => [s.id, s]));
-  const lines = order.map((id, i) => `${i + 1}. ${categoryEmoji(byId.get(id)?.category)} ${escapeHtml(byId.get(id)?.label || '')}`).join('<br>');
-  const km = (totalDistance / 1000).toFixed(2);
+  renderStats();
+  renderNotice();
 
-  showInfo(
-    `<strong>Ruta optimizada:</strong> ${km} km en línea recta &middot; ${describirTiempo(totalDistance)}<br>${lines}`
-  );
-  state.highlightPath = { order };
-  state.mode = 'selection';
-  redraw();
+  el('btnOptimizar').disabled = count < 3 || state.loadingRoute;
+  el('btnOptimizar').title = count < 3 ? 'Agrega al menos 3 paradas para reordenarlas' : '';
+  el('btnGuardar').disabled = count < 2;
+
+  const legs = route && isSameOrder(route.order, stops) ? route.legs : null;
+  const list = el('listaParadas');
+  list.innerHTML = '';
+
+  stops.forEach((id, index) => {
+    const place = state.placesById.get(id);
+    const item = document.createElement('li');
+    item.className = 'stop';
+
+    if (legs && index > 0) {
+      const leg = legs[index - 1];
+      const legInfo = document.createElement('div');
+      legInfo.className = 'stop-leg';
+      legInfo.textContent = leg.duration !== null
+        ? `${formatDistance(leg.distance)} · ${formatDuration(leg.duration)}`
+        : formatDistance(leg.distance);
+      item.appendChild(legInfo);
+    }
+
+    const row = document.createElement('div');
+    row.className = 'stop-row';
+
+    const number = document.createElement('span');
+    number.className = 'stop-number';
+    number.textContent = index + 1;
+
+    const name = document.createElement('button');
+    name.className = 'stop-name';
+    name.textContent = place.label;
+    name.onclick = () => focusPlace(id);
+
+    const controls = document.createElement('div');
+    controls.className = 'stop-controls';
+    const iconButton = (text, label, onClick, disabled = false, extraClass = '') => {
+      const button = document.createElement('button');
+      button.className = `icon-btn ${extraClass}`;
+      button.textContent = text;
+      button.title = label;
+      button.setAttribute('aria-label', `${label}: ${place.label}`);
+      button.disabled = disabled;
+      button.onclick = onClick;
+      return button;
+    };
+    controls.append(
+      iconButton('↑', 'Subir', () => moveStop(index, -1), index === 0),
+      iconButton('↓', 'Bajar', () => moveStop(index, 1), index === count - 1),
+      iconButton('✕', 'Quitar', () => toggleStop(id), false, 'danger')
+    );
+
+    row.append(number, name, controls);
+    item.appendChild(row);
+    list.appendChild(item);
+  });
 }
 
-async function onVerTodosLosNodos() {
-  state.allNodes = await api('/nodes/all');
-  state.mode = 'all';
-  hideInfo();
-  redraw();
+function setProfile(profile) {
+  if (state.profile === profile) return;
+  state.profile = profile;
+  state.route = null;
+  renderRouteLine();
+  scheduleRouteUpdate({ fit: true });
 }
 
-function onLimpiarMapa() {
-  state.selected = [];
-  state.highlightPath = null;
-  state.mode = 'empty';
-  hideInfo();
-  renderSelected();
-  redraw();
+async function onVaciar() {
+  setStops([]);
+  toast('Ruta vaciada.');
 }
 
 // ===== Rutas guardadas =====
 
 async function cargarRutasGuardadas() {
-  const routes = await api('/routes');
+  state.savedRoutes = state.user ? await api('/routes') : [];
+  renderSavedRoutes();
+}
+
+function renderSavedRoutes() {
   const list = el('listaRutas');
   list.innerHTML = '';
-  for (const r of routes) {
-    const li = document.createElement('li');
-    li.textContent = r.name;
-    li.onclick = () => mostrarRutaSeleccionada(r.id);
-    list.appendChild(li);
+
+  const isEmpty = state.savedRoutes.length === 0;
+  el('guardadasVacia').classList.toggle('hidden', !isEmpty);
+  el('btnGuardadasLogin').classList.toggle('hidden', Boolean(state.user));
+  el('guardadasTitulo').textContent = state.user ? 'Aún no tienes rutas guardadas' : 'Tus rutas, siempre a mano';
+  el('guardadasTexto').textContent = state.user
+    ? 'Arma una ruta en “Mi ruta” y guárdala para volver a ella cuando quieras.'
+    : 'Inicia sesión para ver tus rutas guardadas.';
+
+  for (const route of state.savedRoutes) {
+    const item = document.createElement('li');
+    item.className = 'saved-item';
+
+    const main = document.createElement('button');
+    main.className = 'saved-main';
+    const date = new Date(`${route.created_at.replace(' ', 'T')}Z`).toLocaleDateString('es-PE', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+    main.innerHTML =
+      `<span class="saved-name">${escapeHtml(route.name)}</span>` +
+      `<span class="saved-date">${escapeHtml(date)}</span>`;
+    main.onclick = () => abrirRutaGuardada(route.id);
+
+    const remove = document.createElement('button');
+    remove.className = 'icon-btn danger';
+    remove.textContent = '✕';
+    remove.title = 'Eliminar';
+    remove.setAttribute('aria-label', `Eliminar ruta: ${route.name}`);
+    remove.onclick = () => eliminarRutaGuardada(route);
+
+    item.append(main, remove);
+    list.appendChild(item);
   }
 }
 
-async function mostrarRutaSeleccionada(id) {
-  const data = await api(`/routes/${id}`);
-  state.savedNodes = data.nodes.filter((n) => n.lat !== null);
-  state.savedEdges = data.edges;
-  state.mode = 'saved';
-  hideInfo();
-  redraw();
+async function abrirRutaGuardada(id) {
+  const { order } = await api(`/routes/${id}`);
+  const stops = order.filter((stopId) => state.placesById.has(stopId));
+  setTab('ruta');
+  setStops(stops, { fit: true });
 }
 
-async function onGuardarRuta() {
-  if (el('btnGuardar').disabled) {
-    alert('Debes iniciar sesión como administrador para guardar rutas.');
-    return;
-  }
-  if (state.selected.length < 2) {
-    alert('Selecciona al menos 2 lugares');
-    return;
-  }
+async function eliminarRutaGuardada(route) {
+  const confirmed = await confirmDialog('¿Eliminar esta ruta?', `“${route.name}” se eliminará para siempre.`);
+  if (!confirmed) return;
+  await api(`/routes/${route.id}`, { method: 'DELETE' });
+  await cargarRutasGuardadas();
+  toast('Ruta eliminada.');
+}
 
+function onGuardar() {
+  if (!state.user) {
+    openLogin('Inicia sesión para guardar tus rutas.');
+    return;
+  }
+  if (state.user.role !== 'admin') {
+    toast('Por ahora, solo los administradores pueden guardar rutas.', { error: true });
+    return;
+  }
   el('guardarNombre').value = '';
   el('dlgGuardar').showModal();
 }
 
-// ===== Login =====
-
-function actualizarUI() {
-  if (state.user) {
-    el('lblUsuario').textContent = `${state.user.nombreCompleto} (${state.user.role})`;
-    el('lblUsuario').classList.add('logueado');
-    el('btnLogin').textContent = 'Cerrar sesión';
-    const esAdmin = state.user.role === 'admin';
-    el('btnGuardar').disabled = !esAdmin;
-    el('btnNodos').disabled = !esAdmin;
-  } else {
-    el('lblUsuario').textContent = 'No has iniciado sesión';
-    el('lblUsuario').classList.remove('logueado');
-    el('btnLogin').textContent = 'Iniciar sesión';
-    el('btnGuardar').disabled = true;
-    el('btnNodos').disabled = true;
-  }
-}
-
-async function onLogout() {
-  await api('/logout', { method: 'POST' });
-  state.user = null;
-  actualizarUI();
+async function onSubmitGuardar(e) {
+  e.preventDefault();
+  const name = el('guardarNombre').value.trim();
+  if (!name) return;
+  await api('/routes', { method: 'POST', body: JSON.stringify({ name, nodeIds: state.stops }) });
+  el('dlgGuardar').close();
   await cargarRutasGuardadas();
-  if (state.mode === 'saved') {
-    state.savedNodes = [];
-    state.savedEdges = [];
-    state.mode = state.selected.length > 0 ? 'selection' : 'empty';
-    redraw();
-  }
+  toast('Ruta guardada.');
 }
 
-function onLogin() {
-  if (state.user) {
-    onLogout();
-    return;
-  }
+// ===== Cuenta =====
+
+function renderAccount() {
+  const { user } = state;
+  el('btnCuenta').textContent = user ? 'Salir' : 'Iniciar sesión';
+  el('lblUsuario').textContent = user ? `Hola, ${user.nombreCompleto}` : '';
+  el('lblUsuario').classList.toggle('hidden', !user);
+  el('btnAdmin').classList.toggle('hidden', user?.role !== 'admin');
+}
+
+function openLogin(reason = '') {
   el('loginError').classList.add('hidden');
   el('loginUser').value = '';
   el('loginPass').value = '';
+  el('loginMotivo').textContent = reason;
+  el('loginMotivo').classList.toggle('hidden', !reason);
   el('dlgLogin').showModal();
 }
 
-// ===== Administrar nodos =====
+async function onCuenta() {
+  if (!state.user) {
+    openLogin();
+    return;
+  }
+  await api('/logout', { method: 'POST' });
+  state.user = null;
+  renderAccount();
+  await cargarRutasGuardadas();
+  toast('Sesión cerrada.');
+}
 
-async function onNodos() {
-  const nodos = await api('/admin/nodes');
-  const types = await api('/types');
-  const tbody = document.querySelector('#tablaNodos tbody');
+async function onSubmitLogin(e) {
+  e.preventDefault();
+  try {
+    const { user } = await api('/login', {
+      method: 'POST',
+      body: JSON.stringify({ username: el('loginUser').value, password: el('loginPass').value }),
+    });
+    state.user = user;
+    renderAccount();
+    el('dlgLogin').close();
+    await cargarRutasGuardadas();
+  } catch (err) {
+    el('loginError').textContent = err.message;
+    el('loginError').classList.remove('hidden');
+  }
+}
+
+// ===== Editar lugares (administrador) =====
+
+async function recargarLugares() {
+  state.places = await api('/nodes/all');
+  state.placesById = new Map(state.places.map((place) => [place.id, place]));
+  state.stops = state.stops.filter((id) => state.placesById.has(id));
+  renderPlaces();
+  renderMarkers();
+  renderStops();
+}
+
+async function onAdmin() {
+  const [nodes, types] = await Promise.all([api('/admin/nodes'), api('/types')]);
+  const tbody = document.querySelector('#tablaLugares tbody');
   tbody.innerHTML = '';
 
-  for (const n of nodos) {
-    const tr = document.createElement('tr');
+  for (const node of nodes) {
+    const row = document.createElement('tr');
 
-    const fields = ['code', 'label', 'desc', 'ubication'];
-    tr.innerHTML = `<td>${n.id}</td>` +
-      fields.map((f) => `<td><input data-field="${f}" value="${escapeHtml((n[f] ?? '').toString())}"></td>`).join('');
-
-    const tipoTd = document.createElement('td');
-    const select = document.createElement('select');
-    for (const t of types) {
-      const opt = document.createElement('option');
-      opt.value = t.id;
-      opt.textContent = t.name;
-      if (t.id === n.type_id) opt.selected = true;
-      select.appendChild(opt);
+    const inputs = {};
+    for (const [field, label] of [['code', 'Código'], ['label', 'Nombre'], ['desc', 'Descripción'], ['ubication', 'Ubicación']]) {
+      const cell = document.createElement('td');
+      const input = document.createElement('input');
+      input.className = 'input';
+      input.value = node[field] ?? '';
+      input.setAttribute('aria-label', `${label} de ${node.label}`);
+      inputs[field] = input;
+      cell.appendChild(input);
+      row.appendChild(cell);
     }
-    select.dataset.field = 'type_id';
-    tipoTd.appendChild(select);
-    tr.appendChild(tipoTd);
 
-    const accionTd = document.createElement('td');
-    const btnSave = document.createElement('button');
-    btnSave.textContent = 'Guardar';
-    btnSave.onclick = async () => {
-      const payload = { type_id: Number(select.value) };
-      tr.querySelectorAll('input[data-field]').forEach((inp) => {
-        payload[inp.dataset.field] = inp.value;
+    const typeCell = document.createElement('td');
+    const select = document.createElement('select');
+    select.className = 'input';
+    select.setAttribute('aria-label', `Categoría de ${node.label}`);
+    for (const type of types) {
+      const option = document.createElement('option');
+      option.value = type.id;
+      option.textContent = type.name;
+      option.selected = type.id === node.type_id;
+      select.appendChild(option);
+    }
+    typeCell.appendChild(select);
+    row.appendChild(typeCell);
+
+    const actionCell = document.createElement('td');
+    const save = document.createElement('button');
+    save.className = 'btn btn-secondary btn-sm';
+    save.textContent = 'Guardar';
+    save.onclick = async () => {
+      await api(`/admin/nodes/${node.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          code: inputs.code.value,
+          label: inputs.label.value,
+          desc: inputs.desc.value,
+          ubication: inputs.ubication.value,
+          type_id: Number(select.value),
+        }),
       });
-      await api(`/admin/nodes/${n.id}`, { method: 'PUT', body: JSON.stringify(payload) });
-      alert('Lugar actualizado');
+      await recargarLugares();
+      toast('Lugar actualizado.');
     };
-    accionTd.appendChild(btnSave);
-    tr.appendChild(accionTd);
+    actionCell.appendChild(save);
+    row.appendChild(actionCell);
 
-    tbody.appendChild(tr);
+    tbody.appendChild(row);
   }
 
-  el('dlgNodos').showModal();
+  el('dlgAdmin').showModal();
 }
 
 // ===== Inicializacion =====
 
-async function init() {
-  window.addEventListener('unhandledrejection', (e) => {
-    alert(e.reason?.message || 'Ocurrió un error inesperado');
+function bindEvents() {
+  document.querySelectorAll('.tab').forEach((button) => {
+    button.addEventListener('click', () => setTab(button.dataset.tab));
+  });
+  document.querySelectorAll('.segment').forEach((button) => {
+    button.addEventListener('click', () => setProfile(button.dataset.profile));
   });
 
-  initMap();
+  el('txtBuscar').addEventListener('input', (e) => {
+    state.search = e.target.value;
+    renderPlaces();
+    renderMarkers();
+  });
 
-  const types = await api('/types');
-  const combo = el('comboCategoria');
-  combo.innerHTML = '<option value="__ALL__">Todas las categorías</option>' +
-    types.map((t) => `<option value="${escapeHtml(t.name)}">${categoryEmoji(t.name)} ${escapeHtml(t.name)}</option>`).join('');
+  el('btnIrExplorar').addEventListener('click', () => setTab('explorar'));
+  el('btnOptimizar').addEventListener('click', onOptimizar);
+  el('btnGuardar').addEventListener('click', onGuardar);
+  el('btnVaciar').addEventListener('click', onVaciar);
+  el('btnCuenta').addEventListener('click', onCuenta);
+  el('btnGuardadasLogin').addEventListener('click', () => openLogin());
+  el('btnAdmin').addEventListener('click', onAdmin);
 
-  const session = await api('/session');
-  state.user = session.user;
-  actualizarUI();
-
-  await cargarRutasGuardadas();
-  redraw();
-
-  el('btnBuscar').addEventListener('click', onBuscar);
-  el('txtBuscar').addEventListener('keydown', (e) => { if (e.key === 'Enter') onBuscar(); });
-  el('btnFiltrar').addEventListener('click', onFiltrar);
-  el('btnRutaMinima').addEventListener('click', onRutaMinima);
-  el('btnVerOriginal').addEventListener('click', onVerOriginal);
-  el('btnVerTodos').addEventListener('click', onVerTodosLosNodos);
-  el('btnLimpiar').addEventListener('click', onLimpiarMapa);
-  el('btnGuardar').addEventListener('click', onGuardarRuta);
-  el('btnLogin').addEventListener('click', onLogin);
-  el('btnNodos').addEventListener('click', onNodos);
-  el('btnCerrarNodos').addEventListener('click', () => el('dlgNodos').close());
+  el('btnCerrarAdmin').addEventListener('click', () => el('dlgAdmin').close());
   el('btnCancelLogin').addEventListener('click', () => el('dlgLogin').close());
   el('btnCancelGuardar').addEventListener('click', () => el('dlgGuardar').close());
 
-  document.addEventListener('click', (e) => {
-    if (!e.target.closest('.search-row')) el('listaResultadosBusqueda').classList.add('hidden');
-  });
+  el('formLogin').addEventListener('submit', onSubmitLogin);
+  el('formGuardar').addEventListener('submit', onSubmitGuardar);
 
-  el('formLogin').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    try {
-      const { user } = await api('/login', {
-        method: 'POST',
-        body: JSON.stringify({ username: el('loginUser').value, password: el('loginPass').value }),
-      });
-      state.user = user;
-      actualizarUI();
-      el('dlgLogin').close();
-      await cargarRutasGuardadas();
-    } catch (err) {
-      el('loginError').textContent = err.message;
-      el('loginError').classList.remove('hidden');
-    }
+  // Cualquier error no controlado llega aqui: el usuario siempre ve que algo fallo.
+  window.addEventListener('unhandledrejection', (e) => {
+    toast(e.reason?.message || 'Ocurrió un error inesperado.', { error: true });
   });
+}
 
-  el('formGuardar').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const nombre = el('guardarNombre').value.trim();
-    if (!nombre) return;
-    try {
-      await api('/routes', {
-        method: 'POST',
-        body: JSON.stringify({ name: nombre, nodeIds: getNodosParaGuardar() }),
-      });
-      el('dlgGuardar').close();
-      await cargarRutasGuardadas();
-      alert('Ruta guardada');
-    } catch (err) {
-      alert(err.message);
-    }
-  });
+async function init() {
+  bindEvents();
+  initMap();
+  setTab('explorar');
+
+  const [types, session] = await Promise.all([api('/types'), api('/session')]);
+  state.types = types;
+  state.user = session.user;
+
+  renderChips();
+  renderAccount();
+  await recargarLugares();
+  await cargarRutasGuardadas();
 }
 
 init();
