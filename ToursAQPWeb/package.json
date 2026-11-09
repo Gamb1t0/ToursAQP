@@ -6,13 +6,15 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "test": "node --test --test-concurrency=1"
   },
   "engines": {
     "node": ">=22.5.0"
   },
   "dependencies": {
     "express": "^4.19.2",
+    "express-rate-limit": "^8.7.3",
     "express-session": "^1.18.0"
   }
 }

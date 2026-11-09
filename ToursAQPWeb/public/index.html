@@ -11,7 +11,7 @@
 <body>
 <div class="app">
   <aside class="panel panel-left">
-    <h3>Filtrar por categoria</h3>
+    <h3>Filtrar por categoría</h3>
     <select id="comboCategoria"></select>
     <button id="btnFiltrar">Aplicar filtro</button>
 
@@ -31,13 +31,13 @@
     <h4>Ubicaciones seleccionadas:</h4>
     <div id="ubicacionesLayout" class="selected-list"></div>
 
-    <div id="mapaVacio" class="mapa-vacio">Mapa vacio, agregue lugares para comenzar</div>
+    <div id="mapaVacio" class="mapa-vacio">Mapa vacío: agrega lugares para comenzar</div>
     <div id="mapaCanvas"></div>
     <p id="rutaInfo" class="ruta-info hidden"></p>
 
     <div class="button-row">
       <button id="btnGuardar" disabled>Guardar Ruta</button>
-      <button id="btnRutaMinima">Calcular ruta optima</button>
+      <button id="btnRutaMinima">Optimizar ruta</button>
     </div>
     <div class="button-row">
       <button id="btnVerOriginal">Ver orden agregado</button>
@@ -47,17 +47,17 @@
   </main>
 
   <aside class="panel panel-right">
-    <p id="lblUsuario">No ha iniciado sesion</p>
-    <button id="btnLogin">Iniciar sesion</button>
-    <button id="btnNodos" disabled>Administrar nodos</button>
+    <p id="lblUsuario">No has iniciado sesión</p>
+    <button id="btnLogin">Iniciar sesión</button>
+    <button id="btnNodos" disabled>Administrar lugares</button>
   </aside>
 </div>
 
 <dialog id="dlgLogin">
   <form id="formLogin">
-    <h3>Iniciar sesion</h3>
+    <h3>Iniciar sesión</h3>
     <label>Usuario<input id="loginUser" required autocomplete="username"></label>
-    <label>Contrasena<input id="loginPass" type="password" required autocomplete="current-password"></label>
+    <label>Contraseña<input id="loginPass" type="password" required autocomplete="current-password"></label>
     <p id="loginError" class="error hidden"></p>
     <div class="dialog-actions">
       <button type="submit">Ingresar</button>
@@ -78,10 +78,10 @@
 </dialog>
 
 <dialog id="dlgNodos">
-  <h3>Administrar nodos</h3>
+  <h3>Administrar lugares</h3>
   <div class="table-wrap">
     <table id="tablaNodos">
-      <thead><tr><th>ID</th><th>Code</th><th>Label</th><th>Desc</th><th>Ubicacion</th><th>Tipo</th><th></th></tr></thead>
+      <thead><tr><th>ID</th><th>Código</th><th>Nombre</th><th>Descripción</th><th>Ubicación</th><th>Tipo</th><th></th></tr></thead>
       <tbody></tbody>
     </table>
   </div>

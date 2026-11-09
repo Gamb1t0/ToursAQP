@@ -1,5 +1,8 @@
 const AREQUIPA_CENTER = [-16.409, -71.5375];
 
+const MIN_POR_KM_CAMINANDO = 12; // ~5 km/h
+const MAX_KM_CAMINANDO = 15;
+
 const CATEGORY_EMOJI = {
   'Histórico': '🏛️',
   'Cultural': '🎭',
@@ -24,21 +27,10 @@ let map, layerGroup;
 
 const el = (id) => document.getElementById(id);
 
-function haversine(lat1, lon1, lat2, lon2) {
-  const R = 6371000;
-  const toRad = (d) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
+const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 
 function escapeHtml(s) {
-  const d = document.createElement('div');
-  d.textContent = s ?? '';
-  return d.innerHTML;
+  return String(s ?? '').replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]);
 }
 
 function categoryEmoji(cat) {
@@ -73,6 +65,20 @@ function popupHtml(p) {
   return `<strong>${emoji} ${escapeHtml(p.label)}</strong> ${cat}${desc}`;
 }
 
+function popupContent(p) {
+  const container = document.createElement('div');
+  container.innerHTML = popupHtml(p);
+
+  if (state.mode === 'all') {
+    const btn = document.createElement('button');
+    btn.className = 'popup-add';
+    btn.textContent = 'Agregar a mi ruta';
+    btn.onclick = () => addSelected(p);
+    container.appendChild(btn);
+  }
+  return container;
+}
+
 function activePoints() {
   if (state.mode === 'selection') return state.selected;
   if (state.mode === 'all') return state.allNodes;
@@ -89,7 +95,10 @@ function redraw() {
   el('mapaCanvas').classList.toggle('hidden', !hasPoints);
   if (!hasPoints) return;
 
-  if (state.mode === 'selection' && points.length >= 2) {
+  // Leaflet mide 0x0 mientras el contenedor esta oculto.
+  map.invalidateSize({ animate: false });
+
+  if (state.mode === 'selection' && points.length >= 2 && !state.highlightPath) {
     L.polyline(points.map((p) => [p.lat, p.lon]), { color: '#FFFF00', weight: 2 }).addTo(layerGroup);
   }
 
@@ -120,7 +129,7 @@ function redraw() {
       fillOpacity: 1,
     })
       .addTo(layerGroup)
-      .bindPopup(popupHtml(p));
+      .bindPopup(popupContent(p));
   }
 
   map.fitBounds(L.latLngBounds(points.map((p) => [p.lat, p.lon])), { padding: [40, 40], maxZoom: 17 });
@@ -162,7 +171,7 @@ function renderSelected() {
 
 function addSelected(node) {
   if (state.selected.some((s) => s.id === node.id)) {
-    alert('Ya esta agregado');
+    alert('Ese lugar ya está en tu ruta');
     return;
   }
   state.selected.push(node);
@@ -184,6 +193,10 @@ function removeSelected(id) {
 
 function getNodosSeleccionados() {
   return state.selected.map((s) => s.id);
+}
+
+function getNodosParaGuardar() {
+  return state.highlightPath ? state.highlightPath.order : getNodosSeleccionados();
 }
 
 // ===== Busqueda / filtro =====
@@ -231,11 +244,18 @@ async function onFiltrar() {
 
 function onVerOriginal() {
   if (state.selected.length === 0) {
-    alert('Aun no has agregado lugares.');
+    alert('Aún no has agregado lugares.');
     return;
   }
   const lines = state.selected.map((s, i) => `${i + 1}. ${categoryEmoji(s.category)} ${escapeHtml(s.label)}`).join('<br>');
   showInfo(`<strong>Orden en que agregaste los lugares:</strong><br>${lines}`);
+}
+
+// La distancia es en linea recta: la real por calles siempre sera mayor.
+function describirTiempo(metros) {
+  const km = metros / 1000;
+  if (km > MAX_KM_CAMINANDO) return 'demasiado lejos para caminar, considera usar transporte';
+  return `al menos ${Math.round(km * MIN_POR_KM_CAMINANDO)} min caminando`;
 }
 
 async function onRutaMinima() {
@@ -251,12 +271,12 @@ async function onRutaMinima() {
   const byId = new Map(state.selected.map((s) => [s.id, s]));
   const lines = order.map((id, i) => `${i + 1}. ${categoryEmoji(byId.get(id)?.category)} ${escapeHtml(byId.get(id)?.label || '')}`).join('<br>');
   const km = (totalDistance / 1000).toFixed(2);
-  const minutos = Math.round((totalDistance / 1000) * 12); // ~5 km/h caminando
 
   showInfo(
-    `<strong>Ruta optima (vecino mas cercano):</strong> ${km} km &middot; ~${minutos} min caminando<br>${lines}`
+    `<strong>Ruta optimizada:</strong> ${km} km en línea recta &middot; ${describirTiempo(totalDistance)}<br>${lines}`
   );
   state.highlightPath = { order };
+  state.mode = 'selection';
   redraw();
 }
 
@@ -301,7 +321,7 @@ async function mostrarRutaSeleccionada(id) {
 
 async function onGuardarRuta() {
   if (el('btnGuardar').disabled) {
-    alert('Debe iniciar sesion como administrador para guardar rutas.');
+    alert('Debes iniciar sesión como administrador para guardar rutas.');
     return;
   }
   if (state.selected.length < 2) {
@@ -319,18 +339,37 @@ function actualizarUI() {
   if (state.user) {
     el('lblUsuario').textContent = `${state.user.nombreCompleto} (${state.user.role})`;
     el('lblUsuario').classList.add('logueado');
+    el('btnLogin').textContent = 'Cerrar sesión';
     const esAdmin = state.user.role === 'admin';
     el('btnGuardar').disabled = !esAdmin;
     el('btnNodos').disabled = !esAdmin;
   } else {
-    el('lblUsuario').textContent = 'No ha iniciado sesion';
+    el('lblUsuario').textContent = 'No has iniciado sesión';
     el('lblUsuario').classList.remove('logueado');
+    el('btnLogin').textContent = 'Iniciar sesión';
     el('btnGuardar').disabled = true;
     el('btnNodos').disabled = true;
   }
 }
 
+async function onLogout() {
+  await api('/logout', { method: 'POST' });
+  state.user = null;
+  actualizarUI();
+  await cargarRutasGuardadas();
+  if (state.mode === 'saved') {
+    state.savedNodes = [];
+    state.savedEdges = [];
+    state.mode = state.selected.length > 0 ? 'selection' : 'empty';
+    redraw();
+  }
+}
+
 function onLogin() {
+  if (state.user) {
+    onLogout();
+    return;
+  }
   el('loginError').classList.add('hidden');
   el('loginUser').value = '';
   el('loginPass').value = '';
@@ -388,11 +427,15 @@ async function onNodos() {
 // ===== Inicializacion =====
 
 async function init() {
+  window.addEventListener('unhandledrejection', (e) => {
+    alert(e.reason?.message || 'Ocurrió un error inesperado');
+  });
+
   initMap();
 
   const types = await api('/types');
   const combo = el('comboCategoria');
-  combo.innerHTML = '<option value="__ALL__">Todas las categorias</option>' +
+  combo.innerHTML = '<option value="__ALL__">Todas las categorías</option>' +
     types.map((t) => `<option value="${escapeHtml(t.name)}">${categoryEmoji(t.name)} ${escapeHtml(t.name)}</option>`).join('');
 
   const session = await api('/session');
@@ -430,6 +473,7 @@ async function init() {
       state.user = user;
       actualizarUI();
       el('dlgLogin').close();
+      await cargarRutasGuardadas();
     } catch (err) {
       el('loginError').textContent = err.message;
       el('loginError').classList.remove('hidden');
@@ -443,7 +487,7 @@ async function init() {
     try {
       await api('/routes', {
         method: 'POST',
-        body: JSON.stringify({ name: nombre, nodeIds: getNodosSeleccionados() }),
+        body: JSON.stringify({ name: nombre, nodeIds: getNodosParaGuardar() }),
       });
       el('dlgGuardar').close();
       await cargarRutasGuardadas();

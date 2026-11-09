@@ -1,10 +1,31 @@
 const express = require('express');
+const { rateLimit } = require('express-rate-limit');
 const db = require('../db');
 const { verifyPassword } = require('../auth');
 const { parseUbication, haversine } = require('../geo');
-const { nearestNeighborRoute } = require('../graph');
+const { optimizeRoute } = require('../graph');
 
 const router = express.Router();
+
+const MAX_ROUTE_NODES = 100;
+const MAX_ROUTE_NAME = 100;
+
+// Solo cuentan los intentos fallidos: frena la fuerza bruta sin molestar a quien entra bien.
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  skipSuccessfulRequests: true,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Demasiados intentos fallidos. Intenta de nuevo en 15 minutos.' },
+});
+
+function requireUser(req, res, next) {
+  if (!req.session.user) {
+    return res.status(401).json({ error: 'Debes iniciar sesión' });
+  }
+  next();
+}
 
 function requireAdmin(req, res, next) {
   if (!req.session.user || req.session.user.role !== 'admin') {
@@ -12,6 +33,18 @@ function requireAdmin(req, res, next) {
   }
   next();
 }
+
+function isValidNodeIdList(nodeIds) {
+  return (
+    Array.isArray(nodeIds) &&
+    nodeIds.length >= 2 &&
+    nodeIds.length <= MAX_ROUTE_NODES &&
+    nodeIds.every((id) => Number.isInteger(id) && id > 0) &&
+    new Set(nodeIds).size === nodeIds.length
+  );
+}
+
+const NODE_IDS_ERROR = `Seleccione entre 2 y ${MAX_ROUTE_NODES} lugares distintos`;
 
 function nodeToCoord(row) {
   const coords = parseUbication(row.ubication);
@@ -26,6 +59,27 @@ function nodeToCoord(row) {
   };
 }
 
+function normalizeText(text) {
+  return String(text ?? '')
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase();
+}
+
+function findCoordsById(nodeIds) {
+  const placeholders = nodeIds.map(() => '?').join(',');
+  const rows = db
+    .prepare(`SELECT id, ubication FROM nodes WHERE id IN (${placeholders})`)
+    .all(...nodeIds);
+
+  const coordsById = new Map();
+  for (const row of rows) {
+    const c = parseUbication(row.ubication);
+    if (c) coordsById.set(row.id, c);
+  }
+  return coordsById;
+}
+
 const NODE_WITH_CATEGORY_SELECT = `
   SELECT nodes.id, nodes.code, nodes.label, nodes.desc, nodes.ubication, types.name AS category
   FROM nodes LEFT JOIN types ON types.id = nodes.type_id
@@ -33,10 +87,10 @@ const NODE_WITH_CATEGORY_SELECT = `
 
 // ----- Sesion -----
 
-router.post('/login', (req, res) => {
+router.post('/login', loginLimiter, (req, res, next) => {
   const { username, password } = req.body || {};
-  if (!username || !password) {
-    return res.status(400).json({ error: 'Usuario y contrasena son requeridos' });
+  if (typeof username !== 'string' || typeof password !== 'string' || !username || !password) {
+    return res.status(400).json({ error: 'Usuario y contraseña son requeridos' });
   }
 
   const row = db
@@ -47,18 +101,27 @@ router.post('/login', (req, res) => {
     return res.status(401).json({ error: 'Credenciales incorrectas' });
   }
 
-  req.session.user = {
-    id: row.id,
-    username,
-    nombreCompleto: `${row.names} ${row.surnames}`,
-    role: row.role,
-  };
+  // Nueva sesion tras autenticar: evita la fijacion de sesion.
+  req.session.regenerate((err) => {
+    if (err) return next(err);
 
-  res.json({ ok: true, user: req.session.user });
+    req.session.user = {
+      id: row.id,
+      username,
+      nombreCompleto: `${row.names} ${row.surnames}`,
+      role: row.role,
+    };
+
+    res.json({ ok: true, user: req.session.user });
+  });
 });
 
-router.post('/logout', (req, res) => {
-  req.session.destroy(() => res.json({ ok: true }));
+router.post('/logout', (req, res, next) => {
+  req.session.destroy((err) => {
+    if (err) return next(err);
+    res.clearCookie('connect.sid');
+    res.json({ ok: true });
+  });
 });
 
 router.get('/session', (req, res) => {
@@ -73,19 +136,22 @@ router.get('/types', (req, res) => {
 });
 
 router.get('/search', (req, res) => {
-  const q = String(req.query.q || '').trim();
+  const q = normalizeText(req.query.q).trim();
   if (!q) return res.json([]);
 
+  // SQLite LIKE no ignora acentos ("volcan" no encontraria "Volcán"), asi que se filtra aqui.
   const rows = db
-    .prepare(`${NODE_WITH_CATEGORY_SELECT} WHERE nodes.label LIKE ? LIMIT 15`)
-    .all(`%${q}%`);
+    .prepare(NODE_WITH_CATEGORY_SELECT)
+    .all()
+    .filter((row) => normalizeText(row.label).includes(q))
+    .slice(0, 15);
 
   res.json(rows.map(({ ubication, ...rest }) => rest));
 });
 
 router.get('/nodes', (req, res) => {
   const type = req.query.type;
-  const rows = type
+  const rows = typeof type === 'string'
     ? db.prepare(`${NODE_WITH_CATEGORY_SELECT} WHERE types.name = ?`).all(type)
     : db.prepare(NODE_WITH_CATEGORY_SELECT).all();
 
@@ -101,7 +167,8 @@ router.get('/nodes/coords', (req, res) => {
   const ids = String(req.query.ids || '')
     .split(',')
     .map((v) => Number(v))
-    .filter((v) => Number.isInteger(v));
+    .filter((v) => Number.isInteger(v) && v > 0)
+    .slice(0, MAX_ROUTE_NODES);
 
   if (ids.length === 0) return res.json([]);
 
@@ -113,35 +180,27 @@ router.get('/nodes/coords', (req, res) => {
   res.json(rows.map(nodeToCoord));
 });
 
-// ----- Calculo de ruta optima -----
+// ----- Calculo de ruta optimizada -----
 
 router.post('/route/compute', (req, res) => {
   const { nodeIds } = req.body || {};
 
-  if (!Array.isArray(nodeIds) || nodeIds.length < 2) {
-    return res.status(400).json({ error: 'Seleccione al menos 2 nodos' });
+  if (!isValidNodeIdList(nodeIds)) {
+    return res.status(400).json({ error: NODE_IDS_ERROR });
   }
 
-  const placeholders = nodeIds.map(() => '?').join(',');
-  const rows = db
-    .prepare(`SELECT id, ubication FROM nodes WHERE id IN (${placeholders})`)
-    .all(...nodeIds);
-
-  const coordsById = new Map();
-  for (const row of rows) {
-    const c = parseUbication(row.ubication);
-    if (c) coordsById.set(row.id, c);
+  const coordsById = findCoordsById(nodeIds);
+  if (coordsById.size !== nodeIds.length) {
+    return res.status(400).json({ error: 'Algún lugar no existe o no tiene coordenadas válidas' });
   }
 
   const distanceFn = (a, b) => {
     const ca = coordsById.get(a);
     const cb = coordsById.get(b);
-    if (!ca || !cb) return Infinity;
     return haversine(ca.lat, ca.lon, cb.lat, cb.lon);
   };
 
-  const { order, totalDistance } = nearestNeighborRoute(nodeIds, distanceFn);
-  res.json({ order, totalDistance });
+  res.json(optimizeRoute(nodeIds, distanceFn));
 });
 
 // ----- Rutas guardadas -----
@@ -150,17 +209,25 @@ router.get('/routes', (req, res) => {
   if (!req.session.user) return res.json([]);
 
   const rows = db
-    .prepare('SELECT id, name, created_at FROM user_routes WHERE user_id = ? ORDER BY created_at DESC')
+    .prepare('SELECT id, name, created_at FROM user_routes WHERE user_id = ? ORDER BY created_at DESC, id DESC')
     .all(req.session.user.id);
 
   res.json(rows);
 });
 
-router.get('/routes/:id', (req, res) => {
+router.get('/routes/:id', requireUser, (req, res) => {
   const routeId = Number(req.params.id);
 
+  // Mismo 404 para "no existe" y "es de otro usuario": no revela que rutas existen.
+  const route = Number.isInteger(routeId)
+    ? db
+        .prepare('SELECT id FROM user_routes WHERE id = ? AND user_id = ?')
+        .get(routeId, req.session.user.id)
+    : null;
+  if (!route) return res.status(404).json({ error: 'Ruta no encontrada' });
+
   const edgeRows = db
-    .prepare('SELECT from_node_id, to_node_id FROM user_route_edges WHERE user_route_id = ?')
+    .prepare('SELECT from_node_id, to_node_id FROM user_route_edges WHERE user_route_id = ? ORDER BY id')
     .all(routeId);
 
   const nodeIds = [...new Set(edgeRows.flatMap((e) => [e.from_node_id, e.to_node_id]))];
@@ -178,10 +245,17 @@ router.get('/routes/:id', (req, res) => {
 });
 
 router.post('/routes', requireAdmin, (req, res) => {
-  const { name, nodeIds } = req.body || {};
+  const { nodeIds } = req.body || {};
+  const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
 
-  if (!name || !Array.isArray(nodeIds) || nodeIds.length < 2) {
-    return res.status(400).json({ error: 'Nombre y al menos 2 nodos son requeridos' });
+  if (!name || name.length > MAX_ROUTE_NAME) {
+    return res.status(400).json({ error: `El nombre es requerido (máximo ${MAX_ROUTE_NAME} caracteres)` });
+  }
+  if (!isValidNodeIdList(nodeIds)) {
+    return res.status(400).json({ error: NODE_IDS_ERROR });
+  }
+  if (findCoordsById(nodeIds).size !== nodeIds.length) {
+    return res.status(400).json({ error: 'Algún lugar no existe o no tiene coordenadas válidas' });
   }
 
   const insertRoute = db.prepare('INSERT INTO user_routes (user_id, name) VALUES (?, ?)');
@@ -196,28 +270,50 @@ router.post('/routes', requireAdmin, (req, res) => {
       insertEdge.run(lastInsertRowid, nodeIds[i], nodeIds[i + 1]);
     }
     db.exec('COMMIT');
-    res.json({ ok: true, id: lastInsertRowid });
+    res.json({ ok: true, id: Number(lastInsertRowid) });
   } catch (err) {
     db.exec('ROLLBACK');
+    console.error(err);
     res.status(500).json({ error: 'No se pudo guardar la ruta' });
   }
 });
 
-// ----- Administracion de nodos -----
+// ----- Administracion de lugares -----
 
 router.get('/admin/nodes', requireAdmin, (req, res) => {
   const rows = db.prepare('SELECT id, code, label, desc, ubication, type_id FROM nodes ORDER BY id').all();
   res.json(rows);
 });
 
+function validateNodePayload({ code, label, desc, ubication, type_id }) {
+  if (typeof code !== 'string' || !code.trim()) return 'El código es requerido';
+  if (typeof label !== 'string' || !label.trim()) return 'El nombre es requerido';
+  if (desc !== undefined && desc !== null && typeof desc !== 'string') return 'Descripción inválida';
+  if (typeof ubication !== 'string' || !parseUbication(ubication)) {
+    return 'Ubicación inválida: usa el formato "latitud,longitud"';
+  }
+  if (!Number.isInteger(type_id) || !db.prepare('SELECT 1 FROM types WHERE id = ?').get(type_id)) {
+    return 'Tipo inválido';
+  }
+  return null;
+}
+
 router.put('/admin/nodes/:id', requireAdmin, (req, res) => {
-  const { code, label, desc, ubication, type_id } = req.body || {};
+  const body = req.body || {};
   const id = Number(req.params.id);
 
-  db.prepare(
-    'UPDATE nodes SET code = ?, label = ?, desc = ?, ubication = ?, type_id = ? WHERE id = ?'
-  ).run(code, label, desc, ubication, type_id, id);
+  const validationError = validateNodePayload(body);
+  if (validationError) return res.status(400).json({ error: validationError });
 
+  const code = body.code.trim();
+  const duplicate = db.prepare('SELECT 1 FROM nodes WHERE code = ? AND id <> ?').get(code, id);
+  if (duplicate) return res.status(409).json({ error: 'Ya existe otro lugar con ese código' });
+
+  const { changes } = db
+    .prepare('UPDATE nodes SET code = ?, label = ?, desc = ?, ubication = ?, type_id = ? WHERE id = ?')
+    .run(code, body.label.trim(), body.desc ?? null, body.ubication.trim(), body.type_id, id);
+
+  if (changes === 0) return res.status(404).json({ error: 'Lugar no encontrado' });
   res.json({ ok: true });
 });
 

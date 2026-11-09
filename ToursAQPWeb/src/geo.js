@@ -15,10 +15,11 @@ function haversine(lat1, lon1, lat2, lon2) {
 
 function parseUbication(ubication) {
   const parts = String(ubication).split(',');
-  if (parts.length !== 2) return null;
+  if (parts.length !== 2 || parts.some((p) => p.trim() === '')) return null;
   const lat = Number(parts[0]);
   const lon = Number(parts[1]);
-  if (Number.isNaN(lat) || Number.isNaN(lon)) return null;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
   return { lat, lon };
 }
 

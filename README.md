@@ -31,12 +31,12 @@ Luego abrir `http://localhost:3000`. Más detalles en [`ToursAQPWeb/README.md`](
 
 - Búsqueda de lugares turísticos y filtro por categoría (categorías cargadas desde la base de datos).
 - Mapa real interactivo (calles, relieve y volcanes de Arequipa de verdad) con marcadores, popups con descripción y categoría, y zoom nativo.
-- Cálculo de ruta óptima (vecino más cercano) con distancia total y tiempo estimado caminando.
+- Ruta optimizada (vecino más cercano + 2-opt) con distancia en línea recta y tiempo mínimo caminando.
 - Ver todos los lugares turísticos en el mapa, y el orden en que se agregaron a la selección actual.
 - Inicio de sesión de usuarios y administración de nodos para administradores.
 - Guardado y consulta de rutas.
 
-Las coordenadas de los 55 lugares se corrigieron con datos reales (geocodificación vía OpenStreetMap/Nominatim) — antes eran aproximaciones inventadas alrededor de un único punto. Se descartaron DFS y BFS como "recorridos": eran ejercicios de teoría de grafos sin utilidad real para planificar un tour, y quedó solo el cálculo de ruta óptima.
+Las coordenadas de los 55 lugares se corrigieron con datos reales (geocodificación vía OpenStreetMap/Nominatim) — antes eran aproximaciones inventadas alrededor de un único punto. Se descartaron DFS y BFS como "recorridos": eran ejercicios de teoría de grafos sin utilidad real para planificar un tour, y quedó solo el cálculo de ruta optimizada.
 
 ## Hoja de ruta
 
