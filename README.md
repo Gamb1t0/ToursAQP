@@ -92,7 +92,7 @@ Más detalles técnicos, como variables de entorno y estructura del código, en 
 
 | Versión | Tecnología | Origen |
 | --- | --- | --- |
-| [**v1 y v2**](universidad/) | Escritorio, C++ y Qt | Proyecto de la **Universidad La Salle** (Arequipa) |
+| [**v1 y v2**](universidad/) | Escritorio, C++ y Qt | Curso **Lenguaje de Programación III** (4.º semestre), Universidad La Salle, Arequipa |
 | **v3 (actual)** | Web, Node.js | **Desarrollo propio**, por mi cuenta, fuera del curso |
 
 Tours AQP nació en la universidad como una **aplicación de escritorio en C++ con Qt**, centrada en algoritmos de grafos: recorría una red de lugares con DFS, BFS y Dijkstra. Después, por mi cuenta, lo convertí en una aplicación web pensada para un turista de verdad:

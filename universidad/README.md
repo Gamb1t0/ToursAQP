@@ -1,6 +1,6 @@
 # Versiones universitarias (C++ / Qt)
 
-Estas son las dos primeras versiones de Tours AQP, hechas como **proyecto de la Universidad La Salle (Arequipa)**. Son aplicaciones de escritorio en C++ con Qt, centradas en algoritmos de grafos. Se conservan aquí como registro del origen del proyecto y ya no se mantienen.
+Estas son las dos primeras versiones de Tours AQP, hechas como proyecto del curso **Lenguaje de Programación III** (cuarto semestre) en la **Universidad La Salle (Arequipa)**. Son aplicaciones de escritorio en C++ con Qt, centradas en algoritmos de grafos. Se conservan aquí como registro del origen del proyecto y ya no se mantienen.
 
 La versión que se mantiene hoy es la web, en [`ToursAQPWeb/`](../ToursAQPWeb/). La desarrollé después por mi cuenta, fuera del curso.
 
