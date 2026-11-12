@@ -1,7 +1,7 @@
 const express = require('express');
 const { rateLimit } = require('express-rate-limit');
 const db = require('../db');
-const { verifyPassword } = require('../auth');
+const { verifyPassword, generateSalt, hashPassword } = require('../auth');
 const { parseUbication, haversine } = require('../geo');
 const { optimizeOrder } = require('../graph');
 const { isValidProfile, getDurationMatrix, getDirections } = require('../routing');
@@ -10,6 +10,22 @@ const router = express.Router();
 
 const MAX_ROUTE_NODES = 25;
 const MAX_ROUTE_NAME = 100;
+const MAX_ROUTES_PER_USER = 50;
+const MAX_DISPLAY_NAME = 60;
+const MIN_PASSWORD = 8;
+const MAX_PASSWORD = 128;
+const USERNAME_PATTERN = /^[a-z0-9._-]{3,30}$/;
+
+// Frena la creacion masiva de cuentas desde una misma conexion. Solo cuentan las
+// cuentas creadas: equivocarse al llenar el formulario no debe bloquear a nadie.
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 10,
+  skipFailedRequests: true,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Se crearon demasiadas cuentas desde esta conexión. Intenta más tarde.' },
+});
 const WALKING_SECONDS_PER_METER = 0.72; // ~5 km/h, solo para el calculo en linea recta
 
 // Cada calculo consulta un servicio publico externo: se limita por visitante.
@@ -161,33 +177,91 @@ const NODE_WITH_CATEGORY_SELECT = `
 
 // ----- Sesion -----
 
+// Los usuarios se guardan en minusculas: "Ana" y "ana" son la misma cuenta.
+function normalizeUsername(username) {
+  return username.trim().toLowerCase();
+}
+
+function displayName(row) {
+  return [row.names, row.surnames].filter(Boolean).join(' ');
+}
+
+// Nueva sesion tras autenticar: evita la fijacion de sesion.
+function startSession(req, res, next, user) {
+  req.session.regenerate((err) => {
+    if (err) return next(err);
+    req.session.user = user;
+    res.json({ ok: true, user });
+  });
+}
+
 router.post('/login', loginLimiter, (req, res, next) => {
   const { username, password } = req.body || {};
   if (typeof username !== 'string' || typeof password !== 'string' || !username || !password) {
     return res.status(400).json({ error: 'Usuario y contraseña son requeridos' });
   }
 
+  const normalized = normalizeUsername(username);
   const row = db
     .prepare('SELECT id, names, surnames, role, password_hash, salt FROM users WHERE username = ?')
-    .get(username);
+    .get(normalized);
 
   if (!row || !row.salt || !verifyPassword(password, row.salt, row.password_hash)) {
-    return res.status(401).json({ error: 'Credenciales incorrectas' });
+    return res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
   }
 
-  // Nueva sesion tras autenticar: evita la fijacion de sesion.
-  req.session.regenerate((err) => {
-    if (err) return next(err);
-
-    req.session.user = {
-      id: row.id,
-      username,
-      nombreCompleto: `${row.names} ${row.surnames}`,
-      role: row.role,
-    };
-
-    res.json({ ok: true, user: req.session.user });
+  startSession(req, res, next, {
+    id: row.id,
+    username: normalized,
+    nombreCompleto: displayName(row),
+    role: row.role,
   });
+});
+
+function validateRegistration({ nombre, username, password }) {
+  if (typeof nombre !== 'string' || typeof username !== 'string' || typeof password !== 'string') {
+    return 'Completa tu nombre, usuario y contraseña';
+  }
+  const name = nombre.trim();
+  if (!name || name.length > MAX_DISPLAY_NAME) {
+    return `Escribe tu nombre (máximo ${MAX_DISPLAY_NAME} caracteres)`;
+  }
+  if (!USERNAME_PATTERN.test(normalizeUsername(username))) {
+    return 'El usuario debe tener de 3 a 30 caracteres: letras, números, punto, guion o guion bajo';
+  }
+  if (password.length < MIN_PASSWORD || password.length > MAX_PASSWORD) {
+    return `La contraseña debe tener al menos ${MIN_PASSWORD} caracteres`;
+  }
+  return null;
+}
+
+router.post('/register', registerLimiter, (req, res, next) => {
+  const body = req.body || {};
+  const validationError = validateRegistration(body);
+  if (validationError) return res.status(400).json({ error: validationError });
+
+  const username = normalizeUsername(body.username);
+  const name = body.nombre.trim();
+  const taken = () => res.status(409).json({ error: 'Ese usuario ya existe. Elige otro.' });
+
+  if (db.prepare('SELECT 1 FROM users WHERE username = ?').get(username)) return taken();
+
+  const salt = generateSalt();
+  let id;
+  try {
+    ({ lastInsertRowid: id } = db
+      .prepare(
+        `INSERT INTO users (username, password_hash, salt, names, surnames, role)
+         VALUES (?, ?, ?, ?, '', 'user')`
+      )
+      .run(username, hashPassword(body.password, salt), salt, name));
+  } catch (err) {
+    // Dos registros simultaneos con el mismo usuario: el UNIQUE de la tabla decide.
+    if (String(err.message).includes('UNIQUE')) return taken();
+    throw err;
+  }
+
+  startSession(req, res, next, { id: Number(id), username, nombreCompleto: name, role: 'user' });
 });
 
 router.post('/logout', (req, res, next) => {
@@ -295,7 +369,7 @@ router.delete('/routes/:id', requireUser, (req, res) => {
   }
 });
 
-router.post('/routes', requireAdmin, (req, res) => {
+router.post('/routes', requireUser, (req, res) => {
   const { nodeIds } = req.body || {};
   const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
 
@@ -307,6 +381,15 @@ router.post('/routes', requireAdmin, (req, res) => {
   }
   if (findCoordsById(nodeIds).size !== nodeIds.length) {
     return res.status(400).json({ error: 'Algún lugar no existe o no tiene coordenadas válidas' });
+  }
+
+  const { c: savedCount } = db
+    .prepare('SELECT COUNT(*) AS c FROM user_routes WHERE user_id = ?')
+    .get(req.session.user.id);
+  if (savedCount >= MAX_ROUTES_PER_USER) {
+    return res.status(400).json({
+      error: `Llegaste al máximo de ${MAX_ROUTES_PER_USER} rutas guardadas. Elimina alguna para guardar otra.`,
+    });
   }
 
   const insertRoute = db.prepare('INSERT INTO user_routes (user_id, name) VALUES (?, ?)');

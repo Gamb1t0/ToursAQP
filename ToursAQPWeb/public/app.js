@@ -43,6 +43,7 @@ const state = {
   user: null,
   savedRoutes: [],
   tab: 'explorar',
+  pendingSave: false,     // guardar la ruta en cuanto el usuario entre o cree su cuenta
 };
 
 let map;
@@ -587,11 +588,11 @@ function renderSavedRoutes() {
 
   const isEmpty = state.savedRoutes.length === 0;
   el('guardadasVacia').classList.toggle('hidden', !isEmpty);
-  el('btnGuardadasLogin').classList.toggle('hidden', Boolean(state.user));
+  el('guardadasAcciones').classList.toggle('hidden', Boolean(state.user));
   el('guardadasTitulo').textContent = state.user ? 'Aún no tienes rutas guardadas' : 'Tus rutas, siempre a mano';
   el('guardadasTexto').textContent = state.user
     ? 'Arma una ruta en “Mi ruta” y guárdala para volver a ella cuando quieras.'
-    : 'Inicia sesión para ver tus rutas guardadas.';
+    : 'Crea una cuenta gratis para guardar tus rutas y abrirlas cuando quieras.';
 
   for (const route of state.savedRoutes) {
     const item = document.createElement('li');
@@ -636,17 +637,19 @@ async function eliminarRutaGuardada(route) {
   toast('Ruta eliminada.');
 }
 
-function onGuardar() {
-  if (!state.user) {
-    openLogin('Inicia sesión para guardar tus rutas.');
-    return;
-  }
-  if (state.user.role !== 'admin') {
-    toast('Por ahora, solo los administradores pueden guardar rutas.', { error: true });
-    return;
-  }
+function openSaveDialog() {
   el('guardarNombre').value = '';
   el('dlgGuardar').showModal();
+}
+
+function onGuardar() {
+  if (!state.user) {
+    // Tras entrar o crear la cuenta, el guardado continua solo.
+    state.pendingSave = true;
+    openRegistro('Crea una cuenta gratis para guardar esta ruta. Solo te toma un momento.');
+    return;
+  }
+  openSaveDialog();
 }
 
 async function onSubmitGuardar(e) {
@@ -670,12 +673,89 @@ function renderAccount() {
 }
 
 function openLogin(reason = '') {
+  el('dlgRegistro').close();
   el('loginError').classList.add('hidden');
   el('loginUser').value = '';
   el('loginPass').value = '';
   el('loginMotivo').textContent = reason;
   el('loginMotivo').classList.toggle('hidden', !reason);
   el('dlgLogin').showModal();
+}
+
+const REGISTRO_MOTIVO = 'Guarda tus rutas y vuelve a ellas desde cualquier dispositivo.';
+
+function openRegistro(reason = REGISTRO_MOTIVO) {
+  el('dlgLogin').close();
+  el('formRegistro').reset();
+  el('registroError').classList.add('hidden');
+  el('registroMotivo').textContent = reason;
+  el('dlgRegistro').showModal();
+  el('registroNombre').focus();
+}
+
+// Comun a login y registro: deja la app lista para el usuario y retoma lo pendiente.
+async function onAuthenticated(user, message) {
+  state.user = user;
+  renderAccount();
+  el('dlgLogin').close();
+  el('dlgRegistro').close();
+  await cargarRutasGuardadas();
+  toast(message);
+
+  if (state.pendingSave) {
+    state.pendingSave = false;
+    if (state.stops.length >= 2) openSaveDialog();
+  }
+}
+
+function cancelAuth(dialogId) {
+  state.pendingSave = false;
+  el(dialogId).close();
+}
+
+// Mismas reglas que el servidor, para avisar antes de enviar.
+function validarRegistro({ nombre, username, password }) {
+  if (!nombre.trim()) return { field: 'registroNombre', message: 'Escribe tu nombre.' };
+  if (!/^[a-z0-9._-]{3,30}$/.test(username.trim().toLowerCase())) {
+    return {
+      field: 'registroUsuario',
+      message: 'El usuario debe tener de 3 a 30 caracteres: letras, números, punto, guion o guion bajo.',
+    };
+  }
+  if (password.length < 8) return { field: 'registroPass', message: 'La contraseña debe tener al menos 8 caracteres.' };
+  return null;
+}
+
+async function onSubmitRegistro(e) {
+  e.preventDefault();
+  const data = {
+    nombre: el('registroNombre').value,
+    username: el('registroUsuario').value,
+    password: el('registroPass').value,
+  };
+  const errorBox = el('registroError');
+  document.querySelectorAll('#formRegistro .input').forEach((input) => input.removeAttribute('aria-invalid'));
+
+  const invalid = validarRegistro(data);
+  if (invalid) {
+    errorBox.textContent = invalid.message;
+    errorBox.classList.remove('hidden');
+    el(invalid.field).setAttribute('aria-invalid', 'true');
+    el(invalid.field).focus();
+    return;
+  }
+
+  const submit = el('btnSubmitRegistro');
+  submit.disabled = true;
+  try {
+    const { user } = await api('/register', { method: 'POST', body: JSON.stringify(data) });
+    await onAuthenticated(user, `¡Bienvenido, ${user.nombreCompleto}! Tu cuenta está lista.`);
+  } catch (err) {
+    errorBox.textContent = err.message;
+    errorBox.classList.remove('hidden');
+  } finally {
+    submit.disabled = false;
+  }
 }
 
 async function onCuenta() {
@@ -697,10 +777,7 @@ async function onSubmitLogin(e) {
       method: 'POST',
       body: JSON.stringify({ username: el('loginUser').value, password: el('loginPass').value }),
     });
-    state.user = user;
-    renderAccount();
-    el('dlgLogin').close();
-    await cargarRutasGuardadas();
+    await onAuthenticated(user, `Hola de nuevo, ${user.nombreCompleto}.`);
   } catch (err) {
     el('loginError').textContent = err.message;
     el('loginError').classList.remove('hidden');
@@ -802,10 +879,20 @@ function bindEvents() {
   el('btnVaciar').addEventListener('click', onVaciar);
   el('btnCuenta').addEventListener('click', onCuenta);
   el('btnGuardadasLogin').addEventListener('click', () => openLogin());
+  el('btnGuardadasRegistro').addEventListener('click', () => openRegistro());
+  el('btnIrRegistro').addEventListener('click', () => openRegistro());
+  el('btnIrLogin').addEventListener('click', () => openLogin());
+  el('btnCancelRegistro').addEventListener('click', () => cancelAuth('dlgRegistro'));
+  el('formRegistro').addEventListener('submit', onSubmitRegistro);
+
+  // Si el usuario desiste (Cancelar o Esc), no queda un guardado pendiente para despues.
+  for (const id of ['dlgLogin', 'dlgRegistro']) {
+    el(id).addEventListener('cancel', () => { state.pendingSave = false; });
+  }
   el('btnAdmin').addEventListener('click', onAdmin);
 
   el('btnCerrarAdmin').addEventListener('click', () => el('dlgAdmin').close());
-  el('btnCancelLogin').addEventListener('click', () => el('dlgLogin').close());
+  el('btnCancelLogin').addEventListener('click', () => cancelAuth('dlgLogin'));
   el('btnCancelGuardar').addEventListener('click', () => el('dlgGuardar').close());
 
   el('formLogin').addEventListener('submit', onSubmitLogin);

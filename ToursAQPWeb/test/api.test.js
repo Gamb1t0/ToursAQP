@@ -213,13 +213,74 @@ test('una ruta guardada solo la ve y la elimina su dueno, y conserva el orden', 
   assert.equal(edges.c, 0);
 });
 
-test('guardar rutas y administrar lugares exige rol admin', async () => {
+test('guardar rutas exige sesion; administrar lugares exige rol admin', async () => {
   const other = await login('turista', 'clave123');
-  const body = { name: 'x', nodeIds: [1, 2] };
+  const body = { name: 'Ruta del turista', nodeIds: [1, 2] };
 
-  assert.equal((await request('POST', '/api/routes', { body })).status, 403);
-  assert.equal((await request('POST', '/api/routes', { body, cookie: other })).status, 403);
+  assert.equal((await request('POST', '/api/routes', { body })).status, 401);
+  assert.equal((await request('POST', '/api/routes', { body, cookie: other })).status, 200);
   assert.equal((await request('GET', '/api/admin/nodes', { cookie: other })).status, 403);
+  assert.equal((await request('PUT', '/api/admin/nodes/1', { body: {}, cookie: other })).status, 403);
+});
+
+async function register(body) {
+  return request('POST', '/api/register', { body });
+}
+
+test('crear una cuenta inicia sesion y permite guardar rutas propias', async () => {
+  const res = await register({ nombre: '  Lucía Pérez ', username: 'Lucia.Perez', password: 'arequipa123' });
+  assert.equal(res.status, 200);
+  const { user } = await res.json();
+  assert.deepEqual(user, { id: user.id, username: 'lucia.perez', nombreCompleto: 'Lucía Pérez', role: 'user' });
+
+  const cookie = res.headers.get('set-cookie').split(';')[0];
+  const session = await (await request('GET', '/api/session', { cookie })).json();
+  assert.equal(session.user.username, 'lucia.perez');
+
+  const saved = await request('POST', '/api/routes', { cookie, body: { name: 'Centro', nodeIds: [1, 2, 3] } });
+  assert.equal(saved.status, 200);
+  const routes = await (await request('GET', '/api/routes', { cookie })).json();
+  assert.deepEqual(routes.map((r) => r.name), ['Centro']);
+
+  // La contrasena queda hasheada, nunca en texto plano.
+  const row = db.prepare('SELECT password_hash, salt FROM users WHERE username = ?').get('lucia.perez');
+  assert.notEqual(row.password_hash, 'arequipa123');
+  assert.ok(row.salt);
+
+  // Se puede entrar despues, sin importar mayusculas en el usuario.
+  await login('LUCIA.PEREZ', 'arequipa123');
+});
+
+test('el registro rechaza usuarios repetidos y datos invalidos', async () => {
+  const valid = { nombre: 'Mateo', username: 'mateo', password: 'arequipa123' };
+  assert.equal((await register(valid)).status, 200);
+
+  const duplicate = await register({ ...valid, username: 'MATEO' });
+  assert.equal(duplicate.status, 409);
+  assert.match((await duplicate.json()).error, /ya existe/);
+
+  const invalid = [
+    { ...valid, username: 'ab' },
+    { ...valid, username: 'con espacio' },
+    { ...valid, username: 'x'.repeat(31) },
+    { ...valid, username: 'mateo2', password: 'corta' },
+    { ...valid, username: 'mateo3', nombre: '   ' },
+    { ...valid, username: 'mateo4', nombre: 'n'.repeat(61) },
+    { ...valid, username: { a: 1 } },
+    { username: 'mateo5', password: 'arequipa123' },
+  ];
+  for (const body of invalid) {
+    const res = await register(body);
+    assert.equal(res.status, 400, JSON.stringify(body));
+    assert.ok((await res.json()).error);
+  }
+});
+
+test('nadie puede crear una cuenta de administrador desde el registro', async () => {
+  const res = await register({ nombre: 'Intruso', username: 'intruso', password: 'arequipa123', role: 'admin' });
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).user.role, 'user');
+  assert.equal(db.prepare('SELECT role FROM users WHERE username = ?').get('intruso').role, 'user');
 });
 
 test('editar un lugar valida los datos', async () => {
@@ -247,6 +308,18 @@ test('logout invalida la sesion', async () => {
 test('login con tipos invalidos responde 400', async () => {
   const res = await request('POST', '/api/login', { body: { username: { a: 1 }, password: 'x' } });
   assert.equal(res.status, 400);
+});
+
+// Debe ir despues de las otras pruebas de registro: agota el cupo de cuentas de esta IP.
+test('el registro se limita a 10 cuentas por hora por conexion', async () => {
+  const statuses = [];
+  for (let i = 0; i < 12; i++) {
+    const res = await register({ nombre: 'Masivo', username: `masivo${i}`, password: 'arequipa123' });
+    statuses.push(res.status);
+  }
+  // Las pruebas anteriores ya crearon 3 cuentas: quedan 7 antes del bloqueo.
+  assert.deepEqual(statuses.slice(0, 7), Array(7).fill(200));
+  assert.ok(statuses.slice(7).every((status) => status === 429), JSON.stringify(statuses));
 });
 
 // Debe ir al final: agota el limite de intentos de esta IP.

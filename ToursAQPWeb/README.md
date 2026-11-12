@@ -64,13 +64,16 @@ ToursAQPWeb/
 
 - Usuario: `admin`
 - Contrasena: `admin123`
-- Rol: administrador (puede guardar rutas y administrar nodos)
+- Rol: administrador (puede editar lugares)
+
+Cualquier visitante puede crear su propia cuenta desde la app ("Crear cuenta"). Las cuentas nuevas tienen rol de usuario: guardan sus rutas, pero no editan lugares.
 
 ## Funcionalidades
 
 - **Explorar:** lista y mapa de todos los lugares, con busqueda al escribir (sin distinguir acentos ni mayusculas) y filtro por categoria. Se agregan a la ruta desde la lista o desde el mapa.
 - **Mi ruta:** el recorrido se traza por las calles reales, a pie o en auto, con distancia y tiempo total y por tramo. Las paradas se pueden reordenar a mano, o con "Ordenar por la ruta mas rapida", que usa los tiempos reales por calles (vecino mas cercano + 2-opt) y mantiene la primera parada como punto de partida. Es una heuristica: da muy buenos resultados, pero no garantiza la optima.
-- **Guardadas:** abrir y eliminar rutas guardadas. Guardar requiere rol administrador y cada usuario solo ve las suyas.
+- **Guardadas:** abrir y eliminar rutas guardadas. Guardar requiere una cuenta (hasta 50 rutas por usuario) y cada usuario solo ve las suyas.
+- **Cuentas:** registro con nombre, usuario y contrasena (minimo 8 caracteres). Si alguien toca "Guardar" sin sesion, se le ofrece crear su cuenta y la ruta se guarda al terminar. Maximo 10 cuentas nuevas por hora desde una misma conexion.
 - Inicio y cierre de sesion con contrasenas hasheadas (PBKDF2-HMAC-SHA256, sal por usuario) y bloqueo temporal tras 10 intentos fallidos.
 - Edicion de lugares para administradores.
 

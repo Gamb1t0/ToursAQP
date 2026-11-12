@@ -32,8 +32,9 @@ Luego abrir `http://localhost:3000`. Más detalles en [`ToursAQPWeb/README.md`](
 - Búsqueda al escribir y filtro por categoría, con todos los lugares visibles en la lista y en el mapa.
 - Recorridos trazados por las calles reales (OSRM + OpenStreetMap), a pie o en auto, con distancia y tiempo por tramo.
 - Orden más rápido de las paradas según tiempos reales (vecino más cercano + 2-opt), o reordenado a mano.
-- Inicio de sesión de usuarios y edición de lugares para administradores.
-- Guardado, apertura y eliminación de rutas.
+- Registro de cuentas gratuitas: cualquier visitante puede crear su cuenta y guardar sus rutas.
+- Guardado, apertura y eliminación de rutas; cada usuario ve solo las suyas.
+- Edición de lugares para administradores.
 
 Las coordenadas de los 55 lugares se corrigieron con datos reales (geocodificación vía OpenStreetMap/Nominatim) — antes eran aproximaciones inventadas alrededor de un único punto. Se descartaron DFS y BFS como "recorridos": eran ejercicios de teoría de grafos sin utilidad real para planificar un tour, y quedó solo el cálculo de ruta optimizada.
 
@@ -44,7 +45,6 @@ Esta versión web es un paso intermedio entre un proyecto de portfolio y un prod
 - Desplegar el servidor en un hosting real (Render, Fly.io, un VPS, etc.) en vez de correrlo solo en local.
 - Permitir cargar lugares y rutas de otras ciudades/países de forma configurable, en vez de tener las coordenadas de Arequipa fijas.
 - Terminar de verificar manualmente las ~16 coordenadas aproximadas (negocios pequeños sin presencia en OpenStreetMap) con datos de campo reales.
-- Agregar registro de usuarios en vez de depender de una cuenta de administrador creada manualmente en la base de datos.
 
 ## Versiones de escritorio (Qt/C++, archivadas)
 
@@ -78,4 +78,6 @@ ToursAQP/
 
 - Usuario: `admin`
 - Contraseña: `admin123`
-- Rol: administrador
+- Rol: administrador (puede editar lugares)
+
+Para probar como turista, crea una cuenta desde la app con "Crear cuenta".
