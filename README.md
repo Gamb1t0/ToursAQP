@@ -90,23 +90,29 @@ Más detalles técnicos, como variables de entorno y estructura del código, en 
 
 ## Historia del proyecto
 
-Tours AQP nació como una **aplicación de escritorio en C++ con Qt**, centrada en algoritmos de grafos: recorría una red de lugares con DFS, BFS y Dijkstra. Después lo convertí en una aplicación web pensada para un turista de verdad:
+| Versión | Tecnología | Origen |
+| --- | --- | --- |
+| [**v1 y v2**](universidad/) | Escritorio, C++ y Qt | Proyecto de la **Universidad La Salle** (Arequipa) |
+| **v3 (actual)** | Web, Node.js | **Desarrollo propio**, por mi cuenta, fuera del curso |
+
+Tours AQP nació en la universidad como una **aplicación de escritorio en C++ con Qt**, centrada en algoritmos de grafos: recorría una red de lugares con DFS, BFS y Dijkstra. Después, por mi cuenta, lo convertí en una aplicación web pensada para un turista de verdad:
 
 1. **De escritorio a web.** Lo migré a Node.js para que se pueda usar desde un enlace en vez de instalar un ejecutable.
 2. **Datos reales.** Corregí las coordenadas de los 55 lugares con geocodificación de OpenStreetMap; antes eran aproximaciones alrededor de un solo punto.
 3. **Del algoritmo de clase a la utilidad real.** Dejé de lado DFS y BFS, que no sirven para planificar un tour, y reemplacé la distancia en línea recta por rutas y tiempos por calles.
 4. **Calidad.** Agregué seguridad, pruebas automáticas, una auditoría de accesibilidad y un rediseño enfocado en que la app sea tranquila de usar en el celular.
 
-Las versiones de escritorio originales se conservan, archivadas, en [`ToursAQP2/`](ToursAQP2/) (C++17 y Qt 6) y [`ToursAQP/`](ToursAQP/), la primera versión.
+Las versiones universitarias se conservan, archivadas, en [`universidad/`](universidad/). El estado exacto en que se entregaron está marcado con la etiqueta [`v1.0-universidad`](https://github.com/Gamb1t0/ToursAQP/tree/v1.0-universidad).
 
 ## Estructura del repositorio
 
 ```text
 ToursAQP/
-├── ToursAQPWeb/   # Versión activa: Node.js + Express + SQLite + Leaflet
-├── ToursAQP2/     # Versión de escritorio en C++/Qt (archivada)
-├── ToursAQP/      # Primera versión de escritorio (archivada)
-├── docs/capturas/ # Imágenes de este README
+├── ToursAQPWeb/        # Versión actual (desarrollo propio): Node.js + Express + SQLite + Leaflet
+├── universidad/        # Versiones del curso en C++/Qt (archivadas)
+│   ├── ToursAQP/       #   v1: primera versión
+│   └── ToursAQP2/      #   v2: versión más completa
+├── docs/capturas/      # Imágenes de este README
 └── LICENSE
 ```
 

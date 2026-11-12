@@ -1,6 +1,6 @@
 # Tours AQP — Web
 
-Version web de Tours AQP: planificador de recorridos turisticos en Arequipa. Migrada desde la version de escritorio en Qt/C++ (`ToursAQP2/`) para no depender de instalar un SDK de Qt y poder desarrollarse con VS Code.
+Version web de Tours AQP: planificador de recorridos turisticos en Arequipa. Es la version actual, desarrollada por mi cuenta a partir de la version de escritorio en Qt/C++ que hice en la universidad ([`universidad/ToursAQP2/`](../universidad/ToursAQP2/)).
 
 ## Requisitos
 
