@@ -4,15 +4,31 @@ const MAX_KM_A_PIE = 15;
 const ROUTE_DEBOUNCE_MS = 300;
 const TOAST_MS = 3500;
 
-const CATEGORY_COLORS = {
-  'Histórico': '#8a5a2b',
-  'Cultural': '#7b4b94',
-  'Natural': '#2e7d4f',
-  'Comercial': '#c2761b',
-  'Educativo': '#2b6cb0',
-  'Restaurantes': '#b83a5e',
-  'Entretenimiento': '#0e8a8a',
+// Los colores viven en style.css (--cat-*): aqui solo se elige la variable.
+const CATEGORY_TOKENS = {
+  'Histórico': '--cat-historico',
+  'Cultural': '--cat-cultural',
+  'Natural': '--cat-natural',
+  'Comercial': '--cat-comercial',
+  'Educativo': '--cat-educativo',
+  'Restaurantes': '--cat-restaurantes',
+  'Entretenimiento': '--cat-entretenimiento',
 };
+
+const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// Iconos dibujados en un mismo trazo, en lugar de caracteres de texto.
+const ICON_PATHS = {
+  up: 'M12 19V5M5 12l7-7 7 7',
+  down: 'M12 5v14M19 12l-7 7-7-7',
+  close: 'M6 6l12 12M18 6L6 18',
+  plus: 'M12 5v14M5 12h14',
+  check: 'M5 12.5l4.5 4.5L19 7',
+};
+
+function icon(name) {
+  return `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${ICON_PATHS[name]}"/></svg>`;
+}
 
 const state = {
   places: [],
@@ -53,7 +69,7 @@ function normalizeText(text) {
 }
 
 function categoryColor(category) {
-  return CATEGORY_COLORS[category] || '#6b6158';
+  return `var(${CATEGORY_TOKENS[category] || '--cat-otro'})`;
 }
 
 function formatDistance(meters) {
@@ -90,6 +106,12 @@ function toast(message, { error = false } = {}) {
   box.classList.toggle('is-error', error);
   if (box.matches(':popover-open')) box.hidePopover();
   box.showPopover();
+
+  // Se vacia y se vuelve a escribir para que se anuncie aunque el texto se repita.
+  const live = el('anuncio');
+  live.textContent = '';
+  setTimeout(() => { live.textContent = message; }, 50);
+
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => box.hidePopover(), TOAST_MS);
 }
@@ -114,14 +136,37 @@ function setTab(tab) {
     el(panelId).classList.toggle('hidden', name !== tab);
   }
   document.querySelectorAll('.tab').forEach((button) => {
-    button.setAttribute('aria-selected', String(button.dataset.tab === tab));
+    const selected = button.dataset.tab === tab;
+    button.setAttribute('aria-selected', String(selected));
+    button.tabIndex = selected ? 0 : -1;
   });
+}
+
+// Patron ARIA de pestanas: flechas, Inicio y Fin mueven el foco y activan la pestana.
+function onTabKeydown(e) {
+  const tabs = [...document.querySelectorAll('.tab')];
+  const index = tabs.indexOf(e.currentTarget);
+  const targets = {
+    ArrowRight: (index + 1) % tabs.length,
+    ArrowLeft: (index - 1 + tabs.length) % tabs.length,
+    Home: 0,
+    End: tabs.length - 1,
+  };
+  if (!(e.key in targets)) return;
+  e.preventDefault();
+  const next = tabs[targets[e.key]];
+  setTab(next.dataset.tab);
+  next.focus();
 }
 
 // ===== Mapa =====
 
 function initMap() {
-  map = L.map('mapa').setView(AREQUIPA_CENTER, 14);
+  map = L.map('mapa', {
+    zoomAnimation: !REDUCED_MOTION,
+    fadeAnimation: !REDUCED_MOTION,
+    markerZoomAnimation: !REDUCED_MOTION,
+  }).setView(AREQUIPA_CENTER, 14);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution:
       '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · Rutas: <a href="https://routing.openstreetmap.de/about.html">FOSSGIS</a>',
@@ -163,10 +208,12 @@ function placeIcon(place) {
   }
   return L.divIcon({
     className: '',
+    // Punto visible de 16px dentro de un area tactil de 24px (WCAG 2.5.8).
+    className: "pin-hit",
     html: `<div class="pin pin-place" style="--cat:${categoryColor(place.category)}"></div>`,
-    iconSize: [16, 16],
-    iconAnchor: [8, 8],
-    popupAnchor: [0, -8],
+    iconSize: [24, 24],
+    iconAnchor: [12, 12],
+    popupAnchor: [0, -10],
   });
 }
 
@@ -199,7 +246,7 @@ function renderMarkers() {
 
 function focusPlace(id) {
   const place = state.placesById.get(id);
-  map.setView([place.lat, place.lon], Math.max(map.getZoom(), 16));
+  map.setView([place.lat, place.lon], Math.max(map.getZoom(), 16), { animate: !REDUCED_MOTION });
   markersById.get(id)?.openPopup();
 }
 
@@ -208,9 +255,9 @@ function renderRouteLine() {
   if (!state.route) return;
 
   const { geometry, routed } = state.route;
-  L.polyline(geometry, { color: '#fffdf8', weight: 8, opacity: 0.9 }).addTo(routeLayer);
+  L.polyline(geometry, { className: 'route-casing', weight: 8, opacity: 0.9 }).addTo(routeLayer);
   L.polyline(geometry, {
-    color: '#b4482a',
+    className: 'route-line',
     weight: 5,
     dashArray: routed ? null : '4 10',
   }).addTo(routeLayer);
@@ -224,7 +271,7 @@ function fitToStops() {
         return [place.lat, place.lon];
       });
   if (points.length === 0) return;
-  map.fitBounds(L.latLngBounds(points), { padding: [50, 50], maxZoom: 16 });
+  map.fitBounds(L.latLngBounds(points), { padding: [50, 50], maxZoom: 16, animate: !REDUCED_MOTION });
 }
 
 // ===== Explorar =====
@@ -282,7 +329,7 @@ function renderPlaces() {
 
     const add = document.createElement('button');
     add.className = `add-btn${added ? ' is-added' : ''}`;
-    add.textContent = added ? '✓' : '+';
+    add.innerHTML = icon(added ? 'check' : 'plus');
     add.setAttribute('aria-label', `${added ? 'Quitar de' : 'Agregar a'} mi ruta: ${place.label}`);
     add.title = added ? 'Quitar de mi ruta' : 'Agregar a mi ruta';
     add.onclick = () => toggleStop(place.id);
@@ -456,7 +503,7 @@ function renderStops() {
   renderNotice();
 
   el('btnOptimizar').disabled = count < 3 || state.loadingRoute;
-  el('btnOptimizar').title = count < 3 ? 'Agrega al menos 3 paradas para reordenarlas' : '';
+  el('optimizarAyuda').classList.toggle('hidden', count >= 3);
   el('btnGuardar').disabled = count < 2;
 
   const legs = route && isSameOrder(route.order, stops) ? route.legs : null;
@@ -492,10 +539,10 @@ function renderStops() {
 
     const controls = document.createElement('div');
     controls.className = 'stop-controls';
-    const iconButton = (text, label, onClick, disabled = false, extraClass = '') => {
+    const iconButton = (iconName, label, onClick, disabled = false, extraClass = '') => {
       const button = document.createElement('button');
       button.className = `icon-btn ${extraClass}`;
-      button.textContent = text;
+      button.innerHTML = icon(iconName);
       button.title = label;
       button.setAttribute('aria-label', `${label}: ${place.label}`);
       button.disabled = disabled;
@@ -503,9 +550,9 @@ function renderStops() {
       return button;
     };
     controls.append(
-      iconButton('↑', 'Subir', () => moveStop(index, -1), index === 0),
-      iconButton('↓', 'Bajar', () => moveStop(index, 1), index === count - 1),
-      iconButton('✕', 'Quitar', () => toggleStop(id), false, 'danger')
+      iconButton('up', 'Subir', () => moveStop(index, -1), index === 0),
+      iconButton('down', 'Bajar', () => moveStop(index, 1), index === count - 1),
+      iconButton('close', 'Quitar', () => toggleStop(id), false, 'danger')
     );
 
     row.append(number, name, controls);
@@ -564,7 +611,7 @@ function renderSavedRoutes() {
 
     const remove = document.createElement('button');
     remove.className = 'icon-btn danger';
-    remove.textContent = '✕';
+    remove.innerHTML = icon('close');
     remove.title = 'Eliminar';
     remove.setAttribute('aria-label', `Eliminar ruta: ${route.name}`);
     remove.onclick = () => eliminarRutaGuardada(route);
@@ -737,6 +784,7 @@ async function onAdmin() {
 function bindEvents() {
   document.querySelectorAll('.tab').forEach((button) => {
     button.addEventListener('click', () => setTab(button.dataset.tab));
+    button.addEventListener('keydown', onTabKeydown);
   });
   document.querySelectorAll('.segment').forEach((button) => {
     button.addEventListener('click', () => setProfile(button.dataset.profile));

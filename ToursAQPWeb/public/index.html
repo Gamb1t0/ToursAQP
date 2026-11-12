@@ -14,7 +14,7 @@
 </head>
 <body>
 <div class="app">
-  <aside class="sidebar">
+  <main class="sidebar">
     <header class="topbar">
       <div class="brand">
         <h1>Tours AQP</h1>
@@ -29,7 +29,7 @@
 
     <nav class="tabs" role="tablist" aria-label="Secciones">
       <button class="tab" role="tab" id="tabExplorar" data-tab="explorar" aria-controls="panelExplorar">Explorar</button>
-      <button class="tab" role="tab" id="tabRuta" data-tab="ruta" aria-controls="panelRuta">Mi ruta <span id="contadorParadas" class="count hidden">0</span></button>
+      <button class="tab" role="tab" id="tabRuta" data-tab="ruta" aria-controls="panelRuta">Mi ruta <span id="contadorParadas" class="count hidden" aria-label="paradas">0</span></button>
       <button class="tab" role="tab" id="tabGuardadas" data-tab="guardadas" aria-controls="panelGuardadas">Guardadas</button>
     </nav>
 
@@ -65,7 +65,8 @@
         <p class="hint">La primera parada es tu punto de partida.</p>
 
         <div class="actions">
-          <button id="btnOptimizar" class="btn btn-primary">Ordenar por la ruta más rápida</button>
+          <button id="btnOptimizar" class="btn btn-primary" aria-describedby="optimizarAyuda">Ordenar por la ruta más rápida</button>
+          <p id="optimizarAyuda" class="hint hidden">Agrega al menos 3 paradas para poder reordenarlas.</p>
           <div class="actions-row">
             <button id="btnGuardar" class="btn btn-secondary">Guardar</button>
             <button id="btnVaciar" class="btn btn-ghost">Vaciar</button>
@@ -82,16 +83,16 @@
       </div>
       <ul id="listaRutas" class="saved-list"></ul>
     </section>
-  </aside>
-
-  <main class="map-area">
-    <div id="mapa" aria-label="Mapa de Arequipa"></div>
   </main>
+
+  <section class="map-area" aria-label="Mapa de Arequipa">
+    <div id="mapa"></div>
+  </section>
 </div>
 
-<dialog id="dlgLogin" class="dialog">
+<dialog id="dlgLogin" class="dialog" aria-labelledby="loginTitulo">
   <form id="formLogin">
-    <h2>Iniciar sesión</h2>
+    <h2 id="loginTitulo">Iniciar sesión</h2>
     <p id="loginMotivo" class="dialog-text hidden"></p>
     <label>Usuario<input id="loginUser" class="input" required autocomplete="username"></label>
     <label>Contraseña<input id="loginPass" class="input" type="password" required autocomplete="current-password"></label>
@@ -103,9 +104,9 @@
   </form>
 </dialog>
 
-<dialog id="dlgGuardar" class="dialog">
+<dialog id="dlgGuardar" class="dialog" aria-labelledby="guardarTitulo">
   <form id="formGuardar">
-    <h2>Guardar ruta</h2>
+    <h2 id="guardarTitulo">Guardar ruta</h2>
     <label>Nombre<input id="guardarNombre" class="input" required maxlength="100" placeholder="Ej.: Centro histórico en una tarde"></label>
     <div class="dialog-actions">
       <button type="button" id="btnCancelGuardar" class="btn btn-ghost">Cancelar</button>
@@ -114,7 +115,7 @@
   </form>
 </dialog>
 
-<dialog id="dlgConfirmar" class="dialog">
+<dialog id="dlgConfirmar" class="dialog" aria-labelledby="confirmarTitulo" aria-describedby="confirmarTexto">
   <form method="dialog">
     <h2 id="confirmarTitulo"></h2>
     <p id="confirmarTexto" class="dialog-text"></p>
@@ -125,8 +126,8 @@
   </form>
 </dialog>
 
-<dialog id="dlgAdmin" class="dialog dialog-wide">
-  <h2>Editar lugares</h2>
+<dialog id="dlgAdmin" class="dialog dialog-wide" aria-labelledby="adminTitulo">
+  <h2 id="adminTitulo">Editar lugares</h2>
   <div class="table-wrap">
     <table id="tablaLugares">
       <thead><tr><th>Código</th><th>Nombre</th><th>Descripción</th><th>Ubicación (lat,lon)</th><th>Categoría</th><th><span class="sr-only">Acciones</span></th></tr></thead>
@@ -138,7 +139,10 @@
   </div>
 </dialog>
 
-<div id="toast" class="toast" popover="manual" role="status"></div>
+<!-- El aviso visual va en popover para quedar sobre los dialogos; la region
+     live separada esta siempre en el DOM para que los lectores de pantalla lo anuncien. -->
+<div id="toast" class="toast" popover="manual" aria-hidden="true"></div>
+<div id="anuncio" class="sr-only" aria-live="polite"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
   integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
