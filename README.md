@@ -1,16 +1,64 @@
 # Tours AQP
 
-Aplicación para planificar recorridos turísticos en Arequipa. El usuario puede buscar lugares, filtrarlos por categoría, seleccionarlos en un mapa y calcular diferentes recorridos sobre una red de ubicaciones. También incluye inicio de sesión y permite guardar rutas para consultarlas posteriormente.
+**Planificador de recorridos turísticos por Arequipa.** Elige los lugares que quieres visitar y la app traza el camino por las calles reales, a pie o en auto, y ordena las paradas para que tardes lo menos posible.
 
-> Las capturas de pantalla se agregarán en una próxima versión.
+![Node.js](https://img.shields.io/badge/Node.js-22.5%2B-5FA04E?logo=nodedotjs&logoColor=white)
+![Express](https://img.shields.io/badge/Express-4-000000?logo=express&logoColor=white)
+![SQLite](https://img.shields.io/badge/SQLite-node%3Asqlite-003B57?logo=sqlite&logoColor=white)
+![Leaflet](https://img.shields.io/badge/Leaflet-1.9-199900?logo=leaflet&logoColor=white)
+![Licencia MIT](https://img.shields.io/badge/licencia-MIT-blue)
 
-## Autor
+![Ruta de 5 paradas por el centro histórico de Arequipa, trazada por las calles reales](docs/capturas/ruta-escritorio.webp)
 
-**Alex Abdon Rhoddo Pacheco**
+## Qué hace
 
-## Versión activa: Tours AQP Web
+- **Explora 55 lugares** de Arequipa en 7 categorías (históricos, culturales, naturales, restaurantes…), con búsqueda al escribir que ignora acentos y filtros por categoría.
+- **Arma tu ruta** desde la lista o el mapa. El recorrido sigue las calles reales, con distancia y tiempo total y por cada tramo.
+- **A pie o en auto:** el camino y los tiempos cambian según cómo te mueves, incluidos los sentidos únicos de las calles.
+- **Ordena por la ruta más rápida:** reorganiza las paradas usando los tiempos reales entre ellas y te dice cuánto tiempo ahorras.
+- **Guarda tus rutas** con una cuenta gratuita y vuelve a abrirlas cuando quieras. Cada usuario ve solo las suyas.
+- **Funciona en el celular:** el mapa arriba y el panel abajo, pensado para usarse caminando por la ciudad.
 
-La versión que se mantiene activamente es la web, en [`ToursAQPWeb/`](ToursAQPWeb/). Se migró desde la versión original en Qt/C++ para no depender de instalar un SDK de Qt y poder trabajar directamente con Node.js y VS Code.
+## Capturas
+
+| Explorar por categoría | Crear cuenta para guardar |
+| --- | --- |
+| ![Lista de lugares históricos filtrados y su ubicación en el mapa](docs/capturas/explorar-escritorio.webp) | ![Diálogo para crear una cuenta gratuita y guardar la ruta](docs/capturas/crear-cuenta.webp) |
+
+<p align="center">
+  <img src="docs/capturas/ruta-movil.webp" alt="Vista móvil con una ruta de 3 paradas" width="300">
+</p>
+
+## Cómo funciona
+
+```mermaid
+flowchart LR
+    A["Navegador<br/>HTML, CSS, JS + Leaflet"] -- "API REST (JSON)" --> B["Servidor<br/>Node.js + Express"]
+    B --> C[("SQLite<br/>lugares, usuarios, rutas")]
+    B -- "tiempos y trazado por calles" --> D["OSRM<br/>sobre OpenStreetMap"]
+    A -- "mapa base" --> E["Teselas de<br/>OpenStreetMap"]
+```
+
+### Decisiones técnicas
+
+- **Rutas por calles reales.** El servidor consulta [OSRM](https://project-osrm.org/) sobre datos de OpenStreetMap, con perfiles a pie y en auto. Las respuestas se guardan en caché y cada visitante tiene un límite de consultas, para no saturar el servicio público. Si OSRM no responde, la app no se rompe: muestra una estimación en línea recta y lo avisa.
+- **Orden de paradas.** Es un problema del viajante abierto: la primera parada queda fija como punto de partida. Uso *vecino más cercano* para una solución inicial y la mejoro con **2-opt** sobre la matriz de tiempos reales de OSRM. Como por calles ir de A a B no siempre cuesta lo mismo que de B a A, el 2-opt recalcula el costo completo de cada candidato.
+- **Seguridad.**
+  - Contraseñas con PBKDF2-HMAC-SHA256 y sal por usuario.
+  - Sesión nueva al iniciar sesión, para evitar la fijación de sesión.
+  - Límite de intentos de login y de cuentas nuevas.
+  - Validación de todas las entradas y errores en JSON, sin trazas expuestas.
+  - Las rutas ajenas responden 404, así no se revela cuáles existen.
+- **Accesibilidad (WCAG 2.2 AA).** Verificada con axe:
+  - Pestañas que se usan con el teclado y avisos que los lectores de pantalla anuncian.
+  - Contraste mínimo de 4.5:1 en texto.
+  - Áreas táctiles de al menos 24 px.
+  - Respeto a la preferencia de "reducir movimiento" del sistema.
+- **Sin dependencias pesadas.** Frontend en JavaScript sin frameworks y base de datos con el módulo nativo `node:sqlite`, así que no hay nada que compilar.
+
+## Ejecutar localmente
+
+Requiere **Node.js 22.5 o superior**.
 
 ```bash
 cd ToursAQPWeb
@@ -18,66 +66,60 @@ npm install
 npm start
 ```
 
-Luego abrir `http://localhost:3000`. Más detalles en [`ToursAQPWeb/README.md`](ToursAQPWeb/README.md).
+Abre `http://localhost:3000`. Para probar como turista, crea una cuenta desde la app. También hay un usuario de prueba con rol de administrador, que puede editar lugares:
 
-### Tecnologías
+- Usuario: `admin`
+- Contraseña: `admin123`
 
-- **Node.js** (`node:sqlite` nativo, sin dependencias de compilación) + **Express** en el backend.
-- **SQLite** para lugares, usuarios y rutas.
-- **HTML/CSS/JavaScript** en el frontend, con **Leaflet + OpenStreetMap** para el mapa y **OSRM** para las rutas por calles.
-- Contraseñas con hash **PBKDF2-HMAC-SHA256** y sal por usuario.
-
-### Funcionalidades principales
-
-- Búsqueda al escribir y filtro por categoría, con todos los lugares visibles en la lista y en el mapa.
-- Recorridos trazados por las calles reales (OSRM + OpenStreetMap), a pie o en auto, con distancia y tiempo por tramo.
-- Orden más rápido de las paradas según tiempos reales (vecino más cercano + 2-opt), o reordenado a mano.
-- Registro de cuentas gratuitas: cualquier visitante puede crear su cuenta y guardar sus rutas.
-- Guardado, apertura y eliminación de rutas; cada usuario ve solo las suyas.
-- Edición de lugares para administradores.
-
-Las coordenadas de los 55 lugares se corrigieron con datos reales (geocodificación vía OpenStreetMap/Nominatim) — antes eran aproximaciones inventadas alrededor de un único punto. Se descartaron DFS y BFS como "recorridos": eran ejercicios de teoría de grafos sin utilidad real para planificar un tour, y quedó solo el cálculo de ruta optimizada.
-
-## Hoja de ruta
-
-Esta versión web es un paso intermedio entre un proyecto de portfolio y un producto que más gente pueda usar: al estar hospedada detrás de una URL (en vez de requerir instalar un ejecutable), es mucho más fácil compartirla. Si en el futuro se busca ofrecer el servicio a más personas en Arequipa, Perú u otros países, los pasos naturales serían:
-
-- Desplegar el servidor en un hosting real (Render, Fly.io, un VPS, etc.) en vez de correrlo solo en local.
-- Permitir cargar lugares y rutas de otras ciudades/países de forma configurable, en vez de tener las coordenadas de Arequipa fijas.
-- Terminar de verificar manualmente las ~16 coordenadas aproximadas (negocios pequeños sin presencia en OpenStreetMap) con datos de campo reales.
-
-## Versiones de escritorio (Qt/C++, archivadas)
-
-El proyecto nació como una aplicación de escritorio en Qt. Esas versiones ya no se mantienen activamente, pero se conservan en el repositorio:
-
-- [`ToursAQP2/`](ToursAQP2/): versión de escritorio más completa, en C++17/Qt 6. Requiere Qt Creator y un kit de Qt (MinGW 64-bit o MSVC 2022 64-bit) para compilarse.
-- [`ToursAQP/`](ToursAQP/): versión anterior y más simple, previa a `ToursAQP2`.
-
-Para compilar `ToursAQP2`:
+### Pruebas
 
 ```bash
-cd ToursAQP2
-qmake ToursAQP2.pro
-mingw32-make   # o "make" fuera de Windows
+cd ToursAQPWeb
+npm test
 ```
 
-La base de datos (`Tours.s3db`) se copia automáticamente junto al ejecutable al compilar, y los temas visuales (`.qss`) están empaquetados dentro del propio binario — no hace falta editar rutas a mano. Las contraseñas también usan PBKDF2-HMAC-SHA256 con sal por usuario.
+Hay 21 pruebas con `node:test` que cubren:
+- El cálculo y la optimización de rutas.
+- Qué hace la app cuando el servicio de rutas falla.
+- El registro, los permisos y la privacidad de las rutas.
+- La validación de datos y los límites de intentos.
+
+Usan una copia temporal de la base de datos y un servidor OSRM simulado, así que no dependen de internet.
+
+Más detalles técnicos, como variables de entorno y estructura del código, en [`ToursAQPWeb/README.md`](ToursAQPWeb/README.md).
+
+## Historia del proyecto
+
+Tours AQP nació como una **aplicación de escritorio en C++ con Qt**, centrada en algoritmos de grafos: recorría una red de lugares con DFS, BFS y Dijkstra. Después lo convertí en una aplicación web pensada para un turista de verdad:
+
+1. **De escritorio a web.** Lo migré a Node.js para que se pueda usar desde un enlace en vez de instalar un ejecutable.
+2. **Datos reales.** Corregí las coordenadas de los 55 lugares con geocodificación de OpenStreetMap; antes eran aproximaciones alrededor de un solo punto.
+3. **Del algoritmo de clase a la utilidad real.** Dejé de lado DFS y BFS, que no sirven para planificar un tour, y reemplacé la distancia en línea recta por rutas y tiempos por calles.
+4. **Calidad.** Agregué seguridad, pruebas automáticas, una auditoría de accesibilidad y un rediseño enfocado en que la app sea tranquila de usar en el celular.
+
+Las versiones de escritorio originales se conservan, archivadas, en [`ToursAQP2/`](ToursAQP2/) (C++17 y Qt 6) y [`ToursAQP/`](ToursAQP/), la primera versión.
 
 ## Estructura del repositorio
 
 ```text
 ToursAQP/
-├── README.md         # Este documento
-├── ToursAQPWeb/       # Versión activa (Node.js + Express + SQLite)
-├── ToursAQP2/         # Versión de escritorio Qt/C++ (archivada)
-├── ToursAQP/          # Versión de escritorio anterior (archivada)
+├── ToursAQPWeb/   # Versión activa: Node.js + Express + SQLite + Leaflet
+├── ToursAQP2/     # Versión de escritorio en C++/Qt (archivada)
+├── ToursAQP/      # Primera versión de escritorio (archivada)
+├── docs/capturas/ # Imágenes de este README
 └── LICENSE
 ```
 
-## Usuario de prueba
+## Próximos pasos
 
-- Usuario: `admin`
-- Contraseña: `admin123`
-- Rol: administrador (puede editar lugares)
+- Publicar una demo en línea (Render o Fly.io).
+- Guardar la ruta en curso al recargar la página y compartirla con un enlace.
+- Usar la ubicación del celular como punto de partida.
+- Agregar fotos, horarios y precios de cada lugar.
+- Verificar en campo las ~16 coordenadas que siguen siendo aproximadas: son negocios pequeños que no están en OpenStreetMap.
 
-Para probar como turista, crea una cuenta desde la app con "Crear cuenta".
+## Autor
+
+**Alex Abdon Rhoddo Pacheco**
+
+Proyecto bajo [licencia MIT](LICENSE). Datos del mapa © colaboradores de [OpenStreetMap](https://www.openstreetmap.org/copyright). Rutas calculadas con [OSRM](https://project-osrm.org/) mediante los servidores de [FOSSGIS](https://routing.openstreetmap.de/).
