@@ -1,0 +1,76 @@
+{
+  "PLAZA": {
+    "orden": 1,
+    "visita": "visita: 30 min",
+    "foto": {
+      "src": "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Arequipa%2C_Plaza_de_Armas_-_panoramio.jpg/500px-Arequipa%2C_Plaza_de_Armas_-_panoramio.jpg",
+      "pagina": "https://commons.wikimedia.org/wiki/File:Arequipa,_Plaza_de_Armas_-_panoramio.jpg",
+      "autor": "Frans-Banja Mulder",
+      "licencia": "CC BY 3.0"
+    }
+  },
+  "STA_CAT": {
+    "orden": 2,
+    "visita": "visita: 2 h",
+    "foto": {
+      "src": "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ae/Monasterio_de_Santa_Catalina%2C_Arequipa.jpg/500px-Monasterio_de_Santa_Catalina%2C_Arequipa.jpg",
+      "pagina": "https://commons.wikimedia.org/wiki/File:Monasterio_de_Santa_Catalina,_Arequipa.jpg",
+      "autor": "DocSlyper",
+      "licencia": "CC BY-SA 2.0"
+    }
+  },
+  "CATEDRAL": {
+    "orden": 3,
+    "visita": "visita: 45 min",
+    "foto": {
+      "src": "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/5f/Catedral_Arequipa%2C_Peru.jpg/500px-Catedral_Arequipa%2C_Peru.jpg",
+      "pagina": "https://commons.wikimedia.org/wiki/File:Catedral_Arequipa,_Peru.jpg",
+      "autor": "DocSlyper",
+      "licencia": "CC BY-SA 2.0"
+    }
+  },
+  "YANAH": {
+    "orden": 4,
+    "visita": "visita: 30 min",
+    "foto": {
+      "src": "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/54/Mirador_of_Yanahuara%2C_Arequipa.jpg/500px-Mirador_of_Yanahuara%2C_Arequipa.jpg",
+      "pagina": "https://commons.wikimedia.org/wiki/File:Mirador_of_Yanahuara,_Arequipa.jpg",
+      "autor": "Filipe Fortes",
+      "licencia": "CC BY-SA 2.0"
+    }
+  },
+  "MUSEO": {
+    "orden": 5,
+    "visita": "visita: 1 h"
+  },
+  "CASA_MORAL": {
+    "orden": 6,
+    "visita": "visita: 45 min",
+    "foto": {
+      "src": "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Casa_del_Moral_2009.jpg/500px-Casa_del_Moral_2009.jpg",
+      "pagina": "https://commons.wikimedia.org/wiki/File:Casa_del_Moral_2009.jpg",
+      "autor": "Pburka",
+      "licencia": "Dominio público"
+    }
+  },
+  "COLCA": {
+    "orden": 7,
+    "visita": "visita: 1 o 2 días",
+    "foto": {
+      "src": "https://thumb.wikimedia.org/wikipedia/commons/thumb/8/8a/Colca_Canyon%2C_Peru.jpg/500px-Colca_Canyon%2C_Peru.jpg",
+      "pagina": "https://commons.wikimedia.org/wiki/File:Colca_Canyon,_Peru.jpg",
+      "autor": "Tydence Davis from Las Vegas",
+      "licencia": "CC BY 2.0"
+    }
+  },
+  "MISTI": {
+    "orden": 8,
+    "visita": "visita: 2 días con guía",
+    "foto": {
+      "src": "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a3/Volcano_Misti%2C_Peru.jpg/500px-Volcano_Misti%2C_Peru.jpg",
+      "pagina": "https://commons.wikimedia.org/wiki/File:Volcano_Misti,_Peru.jpg",
+      "autor": "Los viajes del Cangrejo",
+      "licencia": "CC BY 2.0"
+    }
+  }
+}

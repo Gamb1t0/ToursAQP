@@ -283,9 +283,17 @@ router.get('/types', (req, res) => {
   res.json(rows);
 });
 
+// Curaduria editorial: que lugares se recomiendan primero, cuanto toma visitarlos y su foto.
+// Las fotos son de Wikimedia Commons; cada una lleva autor, licencia y enlace para atribuirla.
+const DESTACADOS = require('../../data/destacados.json');
+
 router.get('/nodes/all', (req, res) => {
   const rows = db.prepare(`${NODE_WITH_CATEGORY_SELECT} ORDER BY nodes.label`).all();
-  res.json(rows.map(nodeToCoord).filter((n) => n.lat !== null));
+  res.json(
+    rows
+      .map((row) => ({ ...nodeToCoord(row), destacado: DESTACADOS[row.code] ?? null }))
+      .filter((n) => n.lat !== null)
+  );
 });
 
 // ----- Calculo de rutas por calles -----

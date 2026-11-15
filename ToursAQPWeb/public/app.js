@@ -44,6 +44,7 @@ const state = {
   savedRoutes: [],
   tab: 'explorar',
   pendingSave: false,     // guardar la ruta en cuanto el usuario entre o cree su cuenta
+  lastCleared: [],        // paradas quitadas con "Vaciar", para poder deshacer
 };
 
 let map;
@@ -180,7 +181,12 @@ function initMap() {
 function popupContent(place) {
   const added = state.stops.includes(place.id);
   const container = document.createElement('div');
+  const foto = place.destacado?.foto;
   container.innerHTML =
+    (foto
+      ? `<img class="popup-photo" src="${escapeHtml(foto.src)}" alt="${escapeHtml(place.label)}" width="240" height="160" loading="lazy">` +
+        `<a class="photo-credit" href="${escapeHtml(foto.pagina)}" target="_blank" rel="noopener">Foto: ${escapeHtml(foto.autor)} · ${escapeHtml(foto.licencia)}</a>`
+      : '') +
     `<strong class="popup-title">${escapeHtml(place.label)}</strong>` +
     `<span class="popup-cat"><span class="dot" style="--cat:${categoryColor(place.category)}"></span>${escapeHtml(place.category || 'Sin categoría')}</span>` +
     (place.desc ? `<p class="popup-desc">${escapeHtml(place.desc)}</p>` : '');
@@ -305,38 +311,103 @@ function renderChips() {
   for (const type of state.types) addChip(type.name, type.name);
 }
 
-function renderPlaces() {
-  const visible = state.places.filter(matchesFilters);
-  el('lblResultados').textContent =
-    visible.length === 0
-      ? 'Ningún lugar coincide con tu búsqueda.'
-      : `${visible.length} ${visible.length === 1 ? 'lugar' : 'lugares'}`;
+// Orden en que se presentan las categorias fuera de los imprescindibles.
+const CATEGORY_ORDER = ['Histórico', 'Cultural', 'Natural', 'Restaurantes', 'Comercial', 'Educativo', 'Entretenimiento'];
 
+function byFeaturedThenName(a, b) {
+  const fa = a.destacado?.orden ?? Infinity;
+  const fb = b.destacado?.orden ?? Infinity;
+  return fa - fb || a.label.localeCompare(b.label, 'es');
+}
+
+function placeItem(place, { featured = false } = {}) {
+  const added = state.stops.includes(place.id);
+  const item = document.createElement('li');
+  item.className = `place-item${featured ? ' is-featured' : ''}`;
+
+  const foto = featured ? place.destacado?.foto : null;
+  const visita = place.destacado?.visita;
+
+  const main = document.createElement('button');
+  main.className = 'place-main';
+  main.innerHTML =
+    (foto
+      ? `<img class="place-photo" src="${escapeHtml(foto.src)}" alt="" width="72" height="72" loading="lazy">`
+      : featured
+        ? `<span class="place-photo is-empty" aria-hidden="true"><svg viewBox="0 0 48 28"><path d="M2 27 L19 6 H29 L46 27 Z"/></svg></span>`
+        : '') +
+    '<span class="place-text">' +
+    `<span class="place-name">${escapeHtml(place.label)}</span>` +
+    `<span class="place-cat"><span class="dot" style="--cat:${categoryColor(place.category)}"></span>${escapeHtml(place.category || 'Sin categoría')}` +
+    (visita ? ` · ${escapeHtml(visita)}` : '') +
+    '</span>' +
+    (place.desc ? `<span class="place-desc">${escapeHtml(place.desc)}</span>` : '') +
+    '</span>';
+  main.onclick = () => focusPlace(place.id);
+
+  const add = document.createElement('button');
+  add.className = `add-btn${added ? ' is-added' : ''}`;
+  add.innerHTML = icon(added ? 'check' : 'plus');
+  add.setAttribute('aria-label', `${added ? 'Quitar de' : 'Agregar a'} mi ruta: ${place.label}`);
+  add.title = added ? 'Quitar de mi ruta' : 'Agregar a mi ruta';
+  add.onclick = () => toggleStop(place.id);
+
+  item.append(main, add);
+  return item;
+}
+
+function sectionHeading(text, count) {
+  const li = document.createElement('li');
+  li.className = 'list-heading';
+  li.innerHTML = `<h2>${escapeHtml(text)}</h2>${count ? `<span>${count}</span>` : ''}`;
+  return li;
+}
+
+function renderPlaces() {
   const list = el('listaLugares');
   list.innerHTML = '';
+  const filtering = Boolean(state.category || normalizeText(state.search).trim());
+  el('pistaInicio').classList.toggle('hidden', filtering || state.stops.length > 0);
 
-  for (const place of visible) {
-    const added = state.stops.includes(place.id);
-    const item = document.createElement('li');
-    item.className = 'place-item';
+  // Con busqueda o filtro: una sola lista, con los imprescindibles primero.
+  if (filtering) {
+    const visible = state.places.filter(matchesFilters).sort(byFeaturedThenName);
+    el('lblResultados').textContent =
+      visible.length === 0
+        ? 'Ningún lugar coincide. Prueba con otra palabra o quita el filtro.'
+        : `${visible.length} ${visible.length === 1 ? 'lugar' : 'lugares'}`;
+    el('lblResultados').classList.remove('hidden');
+    for (const place of visible) list.appendChild(placeItem(place, { featured: Boolean(place.destacado) }));
+    return;
+  }
 
-    const main = document.createElement('button');
-    main.className = 'place-main';
-    main.innerHTML =
-      `<span class="place-name">${escapeHtml(place.label)}</span>` +
-      `<span class="place-cat"><span class="dot" style="--cat:${categoryColor(place.category)}"></span>${escapeHtml(place.category || 'Sin categoría')}</span>` +
-      (place.desc ? `<span class="place-desc">${escapeHtml(place.desc)}</span>` : '');
-    main.onclick = () => focusPlace(place.id);
+  // Sin filtros: primero lo imprescindible, despues el resto agrupado por categoria.
+  el('lblResultados').classList.add('hidden');
+  const featured = state.places.filter((p) => p.destacado).sort(byFeaturedThenName);
+  list.appendChild(sectionHeading('Imprescindibles'));
+  for (const place of featured) list.appendChild(placeItem(place, { featured: true }));
 
-    const add = document.createElement('button');
-    add.className = `add-btn${added ? ' is-added' : ''}`;
-    add.innerHTML = icon(added ? 'check' : 'plus');
-    add.setAttribute('aria-label', `${added ? 'Quitar de' : 'Agregar a'} mi ruta: ${place.label}`);
-    add.title = added ? 'Quitar de mi ruta' : 'Agregar a mi ruta';
-    add.onclick = () => toggleStop(place.id);
+  const rest = state.places.filter((p) => !p.destacado);
+  const categories = [...new Set(rest.map((p) => p.category))].sort(
+    (a, b) => (CATEGORY_ORDER.indexOf(a) + 1 || 99) - (CATEGORY_ORDER.indexOf(b) + 1 || 99)
+  );
+  for (const category of categories) {
+    const places = rest.filter((p) => p.category === category).sort(byFeaturedThenName);
+    list.appendChild(sectionHeading(category || 'Otros', places.length));
+    for (const place of places) list.appendChild(placeItem(place));
+  }
+}
 
-    item.append(main, add);
-    list.appendChild(item);
+function renderCredits() {
+  const list = el('listaCreditos');
+  list.innerHTML = '';
+  for (const place of state.places.filter((p) => p.destacado?.foto).sort(byFeaturedThenName)) {
+    const { foto } = place.destacado;
+    const li = document.createElement('li');
+    li.innerHTML =
+      `<strong>${escapeHtml(place.label)}</strong> ` +
+      `<a href="${escapeHtml(foto.pagina)}" target="_blank" rel="noopener">${escapeHtml(foto.autor)}</a>, ${escapeHtml(foto.licencia)}`;
+    list.appendChild(li);
   }
 }
 
@@ -365,6 +436,8 @@ function moveStop(index, delta) {
 function setStops(stops, { fit = false } = {}) {
   state.stops = stops;
   state.route = null;
+  if (stops.length > 0) state.lastCleared = [];
+  saveCurrentRoute();
   renderPlaces();
   renderMarkers();
   renderRouteLine();
@@ -392,6 +465,7 @@ function applyRoute(route) {
   state.route = route;
   state.stops = route.order;
   state.loadingRoute = false;
+  saveCurrentRoute();
   renderMarkers();
   renderRouteLine();
   renderStops();
@@ -481,6 +555,7 @@ function renderStats() {
   const { route, stops, loadingRoute } = state;
   el('statDistancia').textContent = route ? formatDistance(route.distance) : '–';
   el('statTiempo').textContent = route && route.duration !== null ? formatDuration(route.duration) : '–';
+  el('statModo').textContent = state.profile === 'car' ? 'en auto' : 'a pie';
   document.querySelector('.stats').classList.toggle('is-loading', loadingRoute);
   document.querySelector('.stats').classList.toggle('hidden', stops.length < 2);
 }
@@ -495,6 +570,13 @@ function renderStops() {
 
   el('rutaVacia').classList.toggle('hidden', count > 0);
   el('rutaContenido').classList.toggle('hidden', count === 0);
+
+  const canUndo = count === 0 && state.lastCleared.length > 0;
+  el('rutaVaciaTitulo').textContent = canUndo ? 'Vaciaste tu ruta' : 'Tu ruta está vacía';
+  el('rutaVaciaTexto').textContent = canUndo
+    ? `Quitaste ${state.lastCleared.length} ${state.lastCleared.length === 1 ? 'parada' : 'paradas'}. Puedes recuperarlas.`
+    : 'Suma dos o más lugares y verás el camino por las calles, con el tiempo de cada tramo.';
+  el('btnDeshacerVaciar').classList.toggle('hidden', !canUndo);
 
   document.querySelectorAll('.segment').forEach((button) => {
     button.setAttribute('aria-checked', String(button.dataset.profile === state.profile));
@@ -566,13 +648,45 @@ function setProfile(profile) {
   if (state.profile === profile) return;
   state.profile = profile;
   state.route = null;
+  saveCurrentRoute();
   renderRouteLine();
   scheduleRouteUpdate({ fit: true });
 }
 
-async function onVaciar() {
+function onVaciar() {
+  const previous = state.stops;
   setStops([]);
-  toast('Ruta vaciada.');
+  state.lastCleared = previous;
+  renderStops();
+  el('btnDeshacerVaciar').focus();
+}
+
+function onDeshacerVaciar() {
+  const restored = state.lastCleared.filter((id) => state.placesById.has(id));
+  setStops(restored, { fit: true });
+  toast('Ruta recuperada.');
+}
+
+// ===== Ruta en curso guardada en el navegador =====
+// Para que un turista no pierda su ruta si recarga o cambia de app. Si el navegador
+// no permite guardar (modo privado, almacenamiento bloqueado), la app sigue funcionando.
+
+const ROUTE_STORAGE_KEY = 'toursaqp:ruta-en-curso';
+
+function saveCurrentRoute() {
+  try {
+    localStorage.setItem(ROUTE_STORAGE_KEY, JSON.stringify({ stops: state.stops, profile: state.profile }));
+  } catch { /* sin almacenamiento: no pasa nada */ }
+}
+
+function restoreCurrentRoute() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(ROUTE_STORAGE_KEY) || 'null');
+    if (!saved || !Array.isArray(saved.stops)) return;
+    if (saved.profile === 'foot' || saved.profile === 'car') state.profile = saved.profile;
+    const stops = saved.stops.filter((id) => state.placesById.has(id)).slice(0, MAX_STOPS);
+    if (stops.length > 0) setStops(stops, { fit: true });
+  } catch { /* dato corrupto o sin almacenamiento: se empieza de cero */ }
 }
 
 // ===== Rutas guardadas =====
@@ -873,7 +987,22 @@ function bindEvents() {
     renderMarkers();
   });
 
-  el('btnIrExplorar').addEventListener('click', () => setTab('explorar'));
+  el('btnIrExplorar').addEventListener('click', () => {
+    state.search = '';
+    state.category = null;
+    el('txtBuscar').value = '';
+    renderChips();
+    renderPlaces();
+    renderMarkers();
+    setTab('explorar');
+    el('listaLugares').scrollIntoView?.({ block: 'start' });
+  });
+  el('btnDeshacerVaciar').addEventListener('click', onDeshacerVaciar);
+  el('btnCreditos').addEventListener('click', () => {
+    renderCredits();
+    el('dlgCreditos').showModal();
+  });
+  el('btnCerrarCreditos').addEventListener('click', () => el('dlgCreditos').close());
   el('btnOptimizar').addEventListener('click', onOptimizar);
   el('btnGuardar').addEventListener('click', onGuardar);
   el('btnVaciar').addEventListener('click', onVaciar);
@@ -916,6 +1045,7 @@ async function init() {
   renderChips();
   renderAccount();
   await recargarLugares();
+  restoreCurrentRoute();
   await cargarRutasGuardadas();
 }
 

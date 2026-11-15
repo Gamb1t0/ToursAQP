@@ -17,8 +17,14 @@
   <main class="sidebar">
     <header class="topbar">
       <div class="brand">
-        <h1>Tours AQP</h1>
-        <p>Arma tu recorrido por Arequipa</p>
+        <svg class="brand-mark" viewBox="0 0 48 28" aria-hidden="true">
+          <path class="brand-volcano" d="M2 27 L19 6 H29 L46 27 Z"/>
+          <path class="brand-snow" d="M19 6 H29 L33.5 11.5 L29.5 10 L26.5 12.5 L23 10 L19.5 12.5 L14.5 11.5 Z"/>
+        </svg>
+        <div>
+          <h1>Tours AQP</h1>
+          <p>Rutas a pie y en auto por Arequipa</p>
+        </div>
       </div>
       <div class="account">
         <button id="btnAdmin" class="btn btn-ghost btn-sm hidden">Editar lugares</button>
@@ -38,15 +44,19 @@
         <input id="txtBuscar" class="input" type="search" placeholder="Buscar lugar…" aria-label="Buscar lugar" autocomplete="off">
         <div id="chipsCategoria" class="chips" role="group" aria-label="Filtrar por categoría"></div>
       </div>
+      <p id="pistaInicio" class="hint">Toca <span class="hint-key" aria-hidden="true">+</span> para sumar un lugar a tu ruta.</p>
       <p id="lblResultados" class="result-count"></p>
       <ul id="listaLugares" class="place-list"></ul>
     </section>
 
     <section id="panelRuta" class="panel hidden" role="tabpanel" aria-labelledby="tabRuta">
       <div id="rutaVacia" class="empty">
-        <h2>Tu ruta está vacía</h2>
-        <p>Agrega lugares desde la lista o el mapa. Con dos o más verás el camino por las calles.</p>
-        <button id="btnIrExplorar" class="btn btn-primary">Explorar lugares</button>
+        <h2 id="rutaVaciaTitulo">Tu ruta está vacía</h2>
+        <p id="rutaVaciaTexto">Suma dos o más lugares y verás el camino por las calles, con el tiempo de cada tramo.</p>
+        <div class="empty-actions">
+          <button id="btnIrExplorar" class="btn btn-primary">Ver imprescindibles</button>
+          <button id="btnDeshacerVaciar" class="btn btn-ghost hidden">Deshacer</button>
+        </div>
       </div>
 
       <div id="rutaContenido" class="hidden">
@@ -55,10 +65,10 @@
           <button class="segment" role="radio" data-profile="car">En auto</button>
         </div>
 
-        <div class="stats" aria-live="polite">
-          <div class="stat"><span id="statDistancia" class="stat-value">–</span><span class="stat-label">Distancia</span></div>
-          <div class="stat"><span id="statTiempo" class="stat-value">–</span><span class="stat-label">Tiempo</span></div>
-        </div>
+        <p class="stats route-summary" aria-live="polite">
+          <span id="statTiempo" class="summary-time">–</span>
+          <span class="summary-detail"><span id="statModo">a pie</span> · <span id="statDistancia">–</span></span>
+        </p>
         <div id="avisoRuta" class="notice hidden"></div>
 
         <ol id="listaParadas" class="stop-list"></ol>
@@ -86,6 +96,10 @@
       </div>
       <ul id="listaRutas" class="saved-list"></ul>
     </section>
+
+    <footer class="sidebar-foot">
+      <button type="button" id="btnCreditos" class="link-btn link-quiet">Créditos de las fotos</button>
+    </footer>
   </main>
 
   <section class="map-area" aria-label="Mapa de Arequipa">
@@ -163,6 +177,15 @@
 
 <!-- El aviso visual va en popover para quedar sobre los dialogos; la region
      live separada esta siempre en el DOM para que los lectores de pantalla lo anuncien. -->
+<dialog id="dlgCreditos" class="dialog" aria-labelledby="creditosTitulo">
+  <h2 id="creditosTitulo">Créditos de las fotos</h2>
+  <p class="dialog-text">Fotos de Wikimedia Commons, usadas según su licencia libre.</p>
+  <ul id="listaCreditos" class="credit-list"></ul>
+  <div class="dialog-actions">
+    <button type="button" id="btnCerrarCreditos" class="btn btn-ghost">Cerrar</button>
+  </div>
+</dialog>
+
 <div id="toast" class="toast" popover="manual" aria-hidden="true"></div>
 <div id="anuncio" class="sr-only" aria-live="polite"></div>
 

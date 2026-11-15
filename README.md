@@ -12,7 +12,7 @@
 
 ## Qué hace
 
-- **Explora 55 lugares** de Arequipa en 7 categorías (históricos, culturales, naturales, restaurantes…), con búsqueda al escribir que ignora acentos y filtros por categoría.
+- **Empieza por lo imprescindible:** 8 lugares recomendados, con foto, tiempo de visita sugerido y una descripción con datos concretos. Después vienen los 55 lugares agrupados por categoría, con búsqueda al escribir (que ignora acentos) y filtros.
 - **Arma tu ruta** desde la lista o el mapa. El recorrido sigue las calles reales, con distancia y tiempo total y por cada tramo.
 - **A pie o en auto:** el camino y los tiempos cambian según cómo te mueves, incluidos los sentidos únicos de las calles.
 - **Ordena por la ruta más rápida:** reorganiza las paradas usando los tiempos reales entre ellas y te dice cuánto tiempo ahorras.
@@ -119,13 +119,13 @@ ToursAQP/
 ## Próximos pasos
 
 - Publicar una demo en línea (Render o Fly.io).
-- Guardar la ruta en curso al recargar la página y compartirla con un enlace.
+- Compartir la ruta con un enlace.
 - Usar la ubicación del celular como punto de partida.
-- Agregar fotos, horarios y precios de cada lugar.
+- Agregar fotos, horarios y precios al resto de lugares.
 - Verificar en campo las ~16 coordenadas que siguen siendo aproximadas: son negocios pequeños que no están en OpenStreetMap.
 
 ## Autor
 
 **Alex Abdon Rhoddo Pacheco**
 
-Proyecto bajo [licencia MIT](LICENSE). Datos del mapa © colaboradores de [OpenStreetMap](https://www.openstreetmap.org/copyright). Rutas calculadas con [OSRM](https://project-osrm.org/) mediante los servidores de [FOSSGIS](https://routing.openstreetmap.de/).
+Proyecto bajo [licencia MIT](LICENSE). Las fotos de los lugares son de [Wikimedia Commons](https://commons.wikimedia.org/), con su autor y licencia indicados dentro de la app ("Créditos de las fotos"). Datos del mapa © colaboradores de [OpenStreetMap](https://www.openstreetmap.org/copyright). Rutas calculadas con [OSRM](https://project-osrm.org/) mediante los servidores de [FOSSGIS](https://routing.openstreetmap.de/).

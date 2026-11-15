@@ -332,3 +332,20 @@ test('login se bloquea tras demasiados intentos fallidos', async () => {
   assert.equal(statuses[0], 401);
   assert.equal(statuses.at(-1), 429);
 });
+
+test('los lugares destacados traen orden, tiempo de visita y foto con credito', async () => {
+  const places = await (await request('GET', '/api/nodes/all')).json();
+  const destacados = places.filter((p) => p.destacado).sort((a, b) => a.destacado.orden - b.destacado.orden);
+
+  assert.equal(destacados[0].code, 'PLAZA');
+  assert.ok(destacados.length >= 5);
+  assert.ok(destacados.every((p) => /^visita: /.test(p.destacado.visita)));
+  for (const { destacado } of destacados.filter((p) => p.destacado.foto)) {
+    const { foto } = destacado;
+    // Solo servidores de Wikimedia, y sin parametros de seguimiento en la URL.
+    assert.match(foto.src, /^https:\/\/(upload|thumb)\.wikimedia\.org\/[^?]+$/);
+    assert.match(foto.pagina, /^https:\/\/commons\.wikimedia\.org\//);
+    assert.ok(foto.autor && foto.licencia, 'toda foto necesita autor y licencia');
+  }
+  assert.equal(places.find((p) => p.code === 'ALMA').destacado, null);
+});
